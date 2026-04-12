@@ -108,8 +108,16 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               Connect Linear
             </h2>
             <p className="text-sm text-muted-foreground">
-              Paste your Linear API token. You can create one in Linear
-              Settings → API → Personal API keys.
+              Paste your Linear API token. Create one at{" "}
+              <a
+                href="https://linear.app/settings/api"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2 hover:opacity-80"
+              >
+                linear.app/settings/api
+              </a>{" "}
+              → Personal API keys.
             </p>
             <Input
               type="password"
@@ -148,6 +156,15 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             </h2>
             <p className="text-sm text-muted-foreground">
               Paste a GitHub personal access token with <code className="font-mono text-xs">repo</code> scope.
+              Create one at{" "}
+              <a
+                href="https://github.com/settings/tokens/new?scopes=repo&description=Loop"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2 hover:opacity-80"
+              >
+                github.com/settings/tokens
+              </a>.
             </p>
             <Input
               type="password"

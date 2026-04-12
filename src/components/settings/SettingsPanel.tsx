@@ -122,7 +122,17 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
               Connections
             </h3>
             <div className="space-y-2">
-              <label className="text-xs text-muted-foreground">Linear API token</label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-muted-foreground">Linear API token</label>
+                <a
+                  href="https://linear.app/settings/api"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-primary hover:opacity-80"
+                >
+                  Get token
+                </a>
+              </div>
               <Input
                 type="password"
                 value={linearToken}
@@ -131,7 +141,17 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs text-muted-foreground">GitHub personal access token</label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-muted-foreground">GitHub personal access token</label>
+                <a
+                  href="https://github.com/settings/tokens/new?scopes=repo&description=Loop"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-primary hover:opacity-80"
+                >
+                  Get token
+                </a>
+              </div>
               <Input
                 type="password"
                 value={githubToken}
