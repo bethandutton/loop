@@ -65,6 +65,61 @@ fn get_active_repo(state: tauri::State<AppState>) -> Result<Option<db::RepoRow>,
     state.db.get_active_repo().map_err(|e| e.to_string())
 }
 
+// ---- Repo detection ----
+
+#[derive(Clone, serde::Serialize)]
+struct DetectedRepoInfo {
+    name: String,
+    primary_branch: String,
+    worktrees_dir: String,
+}
+
+#[tauri::command]
+fn detect_repo_info(path: String) -> Result<DetectedRepoInfo, String> {
+    let repo_path = std::path::Path::new(&path);
+
+    if !repo_path.join(".git").exists() && !repo_path.is_dir() {
+        return Err("Not a valid directory or git repository".into());
+    }
+
+    // Derive name from folder
+    let name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("repo")
+        .to_string();
+
+    // Detect primary branch via git
+    let primary_branch = std::process::Command::new("git")
+        .args(["symbolic-ref", "refs/remotes/origin/HEAD", "--short"])
+        .current_dir(&path)
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout)
+                    .ok()
+                    .map(|s| s.trim().trim_start_matches("origin/").to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "main".to_string());
+
+    // Derive worktrees dir
+    let parent = repo_path.parent().unwrap_or(repo_path);
+    let worktrees_dir = parent
+        .join(format!("{}-worktrees", name))
+        .to_string_lossy()
+        .to_string();
+
+    Ok(DetectedRepoInfo {
+        name,
+        primary_branch,
+        worktrees_dir,
+    })
+}
+
 // ---- Keychain commands ----
 
 #[tauri::command]
@@ -90,6 +145,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState { db: Arc::new(db) })
         .invoke_handler(tauri::generate_handler![
             get_setting,
@@ -97,6 +153,7 @@ pub fn run() {
             has_repos,
             create_repo,
             get_active_repo,
+            detect_repo_info,
             store_token,
             get_token,
             delete_token,

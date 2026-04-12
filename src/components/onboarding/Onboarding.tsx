@@ -1,10 +1,17 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { FolderOpen } from "lucide-react";
 
 type Step = "welcome" | "linear" | "github" | "repo" | "done";
+
+interface RepoInfo {
+  name: string;
+  primary_branch: string;
+  worktrees_dir: string;
+}
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -24,9 +31,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   // Repo
   const [repoPath, setRepoPath] = useState("");
-  const [repoName, setRepoName] = useState("");
-  const [primaryBranch, setPrimaryBranch] = useState("main");
-  const [previewPort, setPreviewPort] = useState("3000");
+  const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
 
   const verifyLinear = async () => {
     setError(null);
@@ -36,7 +41,6 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         key: "linear_api_token",
         value: linearToken,
       });
-      // For now, just accept the token. Real verification will come in Phase 1.
       setLinearVerified(true);
       setStep("github");
     } catch (e) {
@@ -62,19 +66,31 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     }
   };
 
+  const pickFolder = async () => {
+    setError(null);
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (!selected) return;
+      const path = selected as string;
+      setRepoPath(path);
+      const info = await invoke<RepoInfo>("detect_repo_info", { path });
+      setRepoInfo(info);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const setupRepo = async () => {
+    if (!repoInfo) return;
     setError(null);
     setLoading(true);
     try {
-      const path = repoPath.trim();
-      const name = repoName.trim() || path.split("/").pop() || "repo";
-      const worktreesDir = path.replace(/\/?$/, "") + "-worktrees";
       await invoke("create_repo", {
-        name,
-        path,
-        worktreesDir,
-        primaryBranch: primaryBranch.trim() || "main",
-        previewPort: parseInt(previewPort) || 3000,
+        name: repoInfo.name,
+        path: repoPath,
+        worktreesDir: repoInfo.worktrees_dir,
+        primaryBranch: repoInfo.primary_branch,
+        previewPort: 3000,
       });
       setStep("done");
     } catch (e) {
@@ -109,17 +125,24 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               Connect Linear
             </h2>
             <p className="text-sm text-muted-foreground">
-              Paste your Linear API token. Create one at{" "}
+              Paste your Linear personal API key. Create one at{" "}
               <a
                 href="https://linear.app/lleverage/settings/account/security"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary underline underline-offset-2 hover:opacity-80"
               >
-                linear.app/settings/api
-              </a>{" "}
-              → Personal API keys.
+                Linear Settings → Account → Security
+              </a>.
             </p>
+            <div className="rounded-md border border-border bg-background px-3 py-2">
+              <p className="text-[11px] font-medium text-muted-foreground mb-1">Required access:</p>
+              <ul className="text-[11px] text-muted-foreground space-y-0.5">
+                <li>Read issues, labels, and cycles assigned to you</li>
+                <li>Read and write issue descriptions (for plan editor)</li>
+                <li>Create new issues</li>
+              </ul>
+            </div>
             <PasswordInput
               placeholder="lin_api_..."
               value={linearToken}
@@ -155,17 +178,23 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               Connect GitHub
             </h2>
             <p className="text-sm text-muted-foreground">
-              Paste a GitHub personal access token with <code className="font-mono text-xs">repo</code> scope.
-              Create one at{" "}
+              Paste a GitHub personal access token (classic). Create one at{" "}
               <a
                 href="https://github.com/settings/tokens/new?scopes=repo&description=Loop"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary underline underline-offset-2 hover:opacity-80"
               >
-                github.com/settings/tokens
+                GitHub Settings → Developer settings → Tokens
               </a>.
             </p>
+            <div className="rounded-md border border-border bg-background px-3 py-2">
+              <p className="text-[11px] font-medium text-muted-foreground mb-1">Required scopes:</p>
+              <ul className="text-[11px] text-muted-foreground space-y-0.5">
+                <li><code className="font-mono bg-surface px-1 rounded">repo</code> — read PR state, reviews, comments, and CI status</li>
+              </ul>
+              <p className="text-[11px] text-muted-foreground/70 mt-1.5">Loop only reads from GitHub in v1. It never writes, merges, or comments.</p>
+            </div>
             <PasswordInput
               placeholder="ghp_..."
               value={githubToken}
@@ -201,54 +230,42 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         {step === "repo" && (
           <div className="space-y-4">
             <h2 className="text-base font-semibold tracking-tight">
-              Set up your repo
+              Select your repo
             </h2>
             <p className="text-sm text-muted-foreground">
-              Point Loop at your local clone.
+              Pick the folder of your local Git clone. Loop will auto-detect
+              the branch and set up worktrees alongside it.
             </p>
-            <div className="space-y-2">
-              <label className="text-xs text-muted-foreground">
-                Repo path
-              </label>
-              <Input
-                placeholder="/Users/you/code/my-project"
-                value={repoPath}
-                onChange={(e) => setRepoPath(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs text-muted-foreground">
-                Friendly name
-              </label>
-              <Input
-                placeholder="my-project"
-                value={repoName}
-                onChange={(e) => setRepoName(e.target.value)}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">
-                  Primary branch
-                </label>
-                <Input
-                  placeholder="main"
-                  value={primaryBranch}
-                  onChange={(e) => setPrimaryBranch(e.target.value)}
-                />
+
+            <button
+              onClick={pickFolder}
+              className="flex w-full items-center gap-3 rounded-md border border-border bg-background px-3 py-3 text-left hover:bg-surface-elevated transition-colors duration-75"
+            >
+              <FolderOpen size={18} className="shrink-0 text-muted-foreground" />
+              {repoPath ? (
+                <span className="font-mono text-xs text-foreground truncate">{repoPath}</span>
+              ) : (
+                <span className="text-sm text-muted-foreground">Choose a folder...</span>
+              )}
+            </button>
+
+            {repoInfo && (
+              <div className="rounded-md border border-border bg-background px-3 py-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-muted-foreground">Name</span>
+                  <span className="font-mono text-xs text-foreground">{repoInfo.name}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-muted-foreground">Branch</span>
+                  <span className="font-mono text-xs text-foreground">{repoInfo.primary_branch}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-muted-foreground">Worktrees</span>
+                  <span className="font-mono text-xs text-foreground truncate ml-4">{repoInfo.worktrees_dir}</span>
+                </div>
               </div>
-              <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">
-                  Preview port
-                </label>
-                <Input
-                  type="number"
-                  placeholder="3000"
-                  value={previewPort}
-                  onChange={(e) => setPreviewPort(e.target.value)}
-                />
-              </div>
-            </div>
+            )}
+
             {error && (
               <p className="text-xs text-destructive">{error}</p>
             )}
@@ -261,7 +278,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               </Button>
               <Button
                 onClick={setupRepo}
-                disabled={!repoPath.trim() || loading}
+                disabled={!repoInfo || loading}
                 className="flex-1"
               >
                 {loading ? "Setting up..." : "Complete setup"}
