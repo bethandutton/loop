@@ -35,7 +35,7 @@
   --border: oklch(0.25 0.005 270);
   --border-strong: oklch(0.32 0.005 270);
 
-  --primary: oklch(0.65 0.2 280);
+  --primary: oklch(0.65 0.2 155);
   --primary-foreground: oklch(0.98 0 0);
 
   --success: oklch(0.65 0.18 145);
@@ -43,7 +43,7 @@
   --destructive: oklch(0.6 0.2 25);
   --info: oklch(0.65 0.15 240);
 
-  --ring: oklch(0.65 0.2 280);
+  --ring: oklch(0.65 0.2 155);
 
   /* Density scale: compact=0.85, comfortable=1.0, spacious=1.15 */
   --density-scale: 1;
@@ -70,7 +70,7 @@
   --border: oklch(0.88 0.005 270);
   --border-strong: oklch(0.78 0.005 270);
 
-  --primary: oklch(0.55 0.22 280);
+  --primary: oklch(0.55 0.22 155);
   --primary-foreground: oklch(0.98 0 0);
 
   --success: oklch(0.55 0.18 145);
@@ -78,7 +78,7 @@
   --destructive: oklch(0.5 0.2 25);
   --info: oklch(0.55 0.15 240);
 
-  --ring: oklch(0.55 0.22 280);
+  --ring: oklch(0.55 0.22 155);
 
   color-scheme: light;
 }
