@@ -1,0 +1,26 @@
+[package]
+name = "loop-app"
+version = "0.1.0"
+description = "A macOS desktop app for managing Linear tickets across Git worktrees"
+authors = ["Bethan Dutton"]
+edition = "2021"
+
+[lib]
+name = "loop_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+keyring = { version = "3", features = ["apple-native"] }
+tokio = { version = "1", features = ["full"] }
+dirs = "6"
+

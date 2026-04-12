@@ -1,0 +1,180 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Loop — CSS Variable Theming
+   Dark mode default, Linear-style density
+   ============================================================ */
+
+/* Font imports */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("https://rsms.me/inter/font-files/InterVariable.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@2.304/fonts/variable/JetBrainsMono[wght].woff2")
+    format("woff2");
+}
+
+/* ---- Dark theme (default) ---- */
+:root[data-theme="dark"],
+:root {
+  --background: oklch(0.15 0.005 270);
+  --surface: oklch(0.19 0.005 270);
+  --surface-elevated: oklch(0.23 0.005 270);
+  --foreground: oklch(0.95 0 0);
+  --muted-foreground: oklch(0.65 0 0);
+  --border: oklch(0.25 0.005 270);
+  --border-strong: oklch(0.32 0.005 270);
+
+  --primary: oklch(0.65 0.2 280);
+  --primary-foreground: oklch(0.98 0 0);
+
+  --success: oklch(0.65 0.18 145);
+  --warning: oklch(0.7 0.15 70);
+  --destructive: oklch(0.6 0.2 25);
+  --info: oklch(0.65 0.15 240);
+
+  --ring: oklch(0.65 0.2 280);
+
+  /* Density scale: compact=0.85, comfortable=1.0, spacious=1.15 */
+  --density-scale: 1;
+
+  /* Semantic spacing tokens (multiplied by density) */
+  --space-card-px: calc(12px * var(--density-scale));
+  --space-card-py: calc(8px * var(--density-scale));
+  --space-card-gap: calc(4px * var(--density-scale));
+  --space-list-padding: calc(8px * var(--density-scale));
+  --space-button-y: calc(6px * var(--density-scale));
+  --space-button-x: calc(12px * var(--density-scale));
+  --space-section-gap: calc(16px * var(--density-scale));
+
+  color-scheme: dark;
+}
+
+/* ---- Light theme ---- */
+:root[data-theme="light"] {
+  --background: oklch(0.98 0.002 270);
+  --surface: oklch(0.95 0.002 270);
+  --surface-elevated: oklch(1 0 0);
+  --foreground: oklch(0.15 0 0);
+  --muted-foreground: oklch(0.45 0 0);
+  --border: oklch(0.88 0.005 270);
+  --border-strong: oklch(0.78 0.005 270);
+
+  --primary: oklch(0.55 0.22 280);
+  --primary-foreground: oklch(0.98 0 0);
+
+  --success: oklch(0.55 0.18 145);
+  --warning: oklch(0.6 0.15 70);
+  --destructive: oklch(0.5 0.2 25);
+  --info: oklch(0.55 0.15 240);
+
+  --ring: oklch(0.55 0.22 280);
+
+  color-scheme: light;
+}
+
+/* ---- Density levels ---- */
+:root[data-density="compact"] {
+  --density-scale: 0.85;
+}
+:root[data-density="comfortable"] {
+  --density-scale: 1;
+}
+:root[data-density="spacious"] {
+  --density-scale: 1.15;
+}
+
+/* ---- Font size levels ---- */
+:root[data-font-size="small"] {
+  font-size: 13px;
+}
+:root[data-font-size="medium"] {
+  font-size: 14px;
+}
+:root[data-font-size="large"] {
+  font-size: 15px;
+}
+
+/* ---- Base styles ---- */
+* {
+  border-color: var(--border);
+}
+
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+/* Tauri window drag region for macOS traffic lights */
+.titlebar-drag-region {
+  -webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+/* Mono font utility */
+.font-mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Tailwind v4 theme integration */
+@theme {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --color-info: var(--info);
+  --color-ring: var(--ring);
+}
