@@ -131,7 +131,7 @@ impl Database {
         Ok(())
     }
 
-    /// Upsert a ticket from Linear data. Preserves local-only fields (branch_name, worktree_path, etc.)
+    /// Upsert a ticket from Linear data. Preserves local-only fields (worktree_path, etc.)
     pub fn upsert_ticket(
         &self,
         id: &str,
@@ -141,21 +141,23 @@ impl Database {
         status: &str,
         priority: i64,
         tags: &str,
+        branch_name: Option<&str>,
         created_at: &str,
         updated_at: &str,
     ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO Ticket (id, identifier, repo_id, title, status, priority, tags, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO Ticket (id, identifier, repo_id, title, status, priority, tags, branch_name, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
                 identifier = excluded.identifier,
                 title = excluded.title,
-                status = CASE WHEN Ticket.branch_name IS NOT NULL THEN Ticket.status ELSE excluded.status END,
+                status = CASE WHEN Ticket.worktree_path IS NOT NULL THEN Ticket.status ELSE excluded.status END,
                 priority = excluded.priority,
                 tags = excluded.tags,
+                branch_name = COALESCE(excluded.branch_name, Ticket.branch_name),
                 updated_at = excluded.updated_at",
-            rusqlite::params![id, identifier, repo_id, title, status, priority, tags, created_at, updated_at],
+            rusqlite::params![id, identifier, repo_id, title, status, priority, tags, branch_name, created_at, updated_at],
         )?;
         Ok(())
     }

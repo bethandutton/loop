@@ -219,6 +219,7 @@ async fn fetch_linear_tickets(state: tauri::State<'_, AppState>) -> Result<Vec<T
                 status,
                 issue.priority,
                 &tags_json,
+                issue.branch_name.as_deref(),
                 &issue.created_at,
                 &issue.updated_at,
             );
@@ -296,7 +297,8 @@ async fn create_linear_ticket(
         .unwrap_or_default();
     let _ = state.db.upsert_ticket(
         &issue.id, &issue.identifier, &repo_id, &issue.title,
-        status, issue.priority, &tags_json, &issue.created_at, &issue.updated_at,
+        status, issue.priority, &tags_json, issue.branch_name.as_deref(),
+        &issue.created_at, &issue.updated_at,
     );
 
     Ok(TicketCard {
@@ -847,6 +849,7 @@ pub fn run() {
                                     status,
                                     issue.priority,
                                     &tags_json,
+                                    issue.branch_name.as_deref(),
                                     &issue.created_at,
                                     &issue.updated_at,
                                 );
