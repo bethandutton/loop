@@ -8,9 +8,10 @@ import type { TicketCard } from "@/App";
 
 interface PlanEditorProps {
   ticket: TicketCard;
+  hideToolbar?: boolean;
 }
 
-export function PlanEditor({ ticket }: PlanEditorProps) {
+export function PlanEditor({ ticket, hideToolbar }: PlanEditorProps) {
   const [content, setContent] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -109,18 +110,19 @@ export function PlanEditor({ ticket }: PlanEditorProps) {
   return (
     <div className="flex h-full flex-col">
       {/* Toolbar */}
-      <div className="titlebar-drag-region flex h-14 shrink-0 items-end justify-between pb-2 px-4">
-        <div className="titlebar-no-drag flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[11px] text-muted-foreground shrink-0">
-            {ticket.identifier}
-          </span>
-          <span className="text-[13px] text-foreground truncate">
-            {ticket.title}
-          </span>
-          {dirty && (
-            <span className="text-[10px] text-warning shrink-0">unsaved</span>
-          )}
-        </div>
+      {!hideToolbar && (
+        <div className="titlebar-drag-region flex h-14 shrink-0 items-end justify-between pb-2 px-4">
+          <div className="titlebar-no-drag flex items-center gap-2 min-w-0">
+            <span className="font-mono text-[11px] text-muted-foreground shrink-0">
+              {ticket.identifier}
+            </span>
+            <span className="text-[13px] text-foreground truncate">
+              {ticket.title}
+            </span>
+            {dirty && (
+              <span className="text-[10px] text-warning shrink-0">unsaved</span>
+            )}
+          </div>
         <div className="titlebar-no-drag flex items-center gap-1.5">
           {(ticket.status === "backlog" || ticket.status === "todo") && (
             <Button
@@ -177,6 +179,30 @@ export function PlanEditor({ ticket }: PlanEditorProps) {
           </Button>
         </div>
       </div>
+      )}
+
+      {/* Action bar when toolbar is hidden */}
+      {hideToolbar && (
+        <div className="flex items-center justify-between px-4 py-1.5 shrink-0">
+          <div className="flex items-center gap-2">
+            {dirty && <span className="text-[10px] text-warning">unsaved</span>}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button variant="ghost" size="sm" onClick={() => setEditing(!editing)}>
+              {editing ? <Eye size={13} className="mr-1" /> : <Pencil size={13} className="mr-1" />}
+              {editing ? "Preview" : "Edit"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleEnhance} disabled={enhancing}>
+              {enhancing ? <Loader2 size={13} className="animate-spin mr-1" /> : <Sparkles size={13} className="mr-1" />}
+              Enhance
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={!dirty || saving}>
+              {saving ? <Loader2 size={13} className="animate-spin mr-1" /> : <Save size={13} className="mr-1" />}
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Conflict banner */}
       {conflict && (

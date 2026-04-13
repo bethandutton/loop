@@ -23,9 +23,11 @@ const SESSION_STATUSES = ["in_progress", "ready_to_test", "in_review", "attentio
 
 interface MiddleColumnProps {
   activeTicket: TicketCard | null;
+  hideToolbar?: boolean;
+  sessionOnly?: boolean;
 }
 
-export function MiddleColumn({ activeTicket }: MiddleColumnProps) {
+export function MiddleColumn({ activeTicket, hideToolbar, sessionOnly }: MiddleColumnProps) {
   const [claudeStatus, setClaudeStatus] = useState<ClaudeCodeStatus | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -84,53 +86,72 @@ export function MiddleColumn({ activeTicket }: MiddleColumnProps) {
     }
   };
 
-  // Plan mode for early-stage tickets
-  if (activeTicket && PLAN_STATUSES.includes(activeTicket.status)) {
-    return <PlanEditor ticket={activeTicket} />;
+  // Plan mode (when not forced into session-only)
+  if (!sessionOnly && activeTicket && PLAN_STATUSES.includes(activeTicket.status)) {
+    return <PlanEditor ticket={activeTicket} hideToolbar={hideToolbar} />;
   }
 
-  // Session mode for in-progress+ tickets
-  if (activeTicket && SESSION_STATUSES.includes(activeTicket.status)) {
+  // Session mode for in-progress+ tickets (or when sessionOnly forced)
+  if (activeTicket && (sessionOnly || SESSION_STATUSES.includes(activeTicket.status))) {
     return (
       <div className="flex h-full flex-col">
-        <div className="titlebar-drag-region flex h-14 shrink-0 items-end justify-between pb-2 px-4">
-          <div className="titlebar-no-drag flex items-center gap-2 min-w-0">
-            <span className="font-mono text-[11px] text-muted-foreground shrink-0">
-              {activeTicket.identifier}
-            </span>
-            <span className="text-[13px] text-foreground truncate">
-              {activeTicket.title}
-            </span>
+        {!hideToolbar && (
+          <div className="titlebar-drag-region flex h-14 shrink-0 items-end justify-between pb-2 px-4">
+            <div className="titlebar-no-drag flex items-center gap-2 min-w-0">
+              <span className="font-mono text-[11px] text-muted-foreground shrink-0">
+                {activeTicket.identifier}
+              </span>
+              <span className="text-[13px] text-foreground truncate">
+                {activeTicket.title}
+              </span>
+            </div>
+            <div className="titlebar-no-drag flex items-center gap-1.5">
+              {!sessionId && (
+                <Button
+                  size="sm"
+                  onClick={handleStartTicket}
+                  disabled={starting}
+                >
+                  {starting ? (
+                    <Loader2 size={13} className="animate-spin mr-1" />
+                  ) : (
+                    <Play size={13} className="mr-1" />
+                  )}
+                  {starting ? "Starting..." : "Start session"}
+                </Button>
+              )}
+              {sessionId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleKillSession}
+                  title="Kill session"
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Square size={13} className="mr-1" />
+                  Kill
+                </Button>
+              )}
+            </div>
           </div>
-          <div className="titlebar-no-drag flex items-center gap-1.5">
+        )}
+
+        {/* Inline action buttons when toolbar is hidden */}
+        {hideToolbar && (
+          <div className="flex items-center justify-end px-4 py-1.5 shrink-0">
             {!sessionId && (
-              <Button
-                size="sm"
-                onClick={handleStartTicket}
-                disabled={starting}
-              >
-                {starting ? (
-                  <Loader2 size={13} className="animate-spin mr-1" />
-                ) : (
-                  <Play size={13} className="mr-1" />
-                )}
+              <Button size="sm" onClick={handleStartTicket} disabled={starting}>
+                {starting ? <Loader2 size={13} className="animate-spin mr-1" /> : <Play size={13} className="mr-1" />}
                 {starting ? "Starting..." : "Start session"}
               </Button>
             )}
             {sessionId && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleKillSession}
-                title="Kill session"
-                className="text-destructive hover:text-destructive"
-              >
-                <Square size={13} className="mr-1" />
-                Kill
+              <Button variant="ghost" size="sm" onClick={handleKillSession} className="text-destructive hover:text-destructive">
+                <Square size={13} className="mr-1" /> Kill
               </Button>
             )}
           </div>
-        </div>
+        )}
 
         {startError && (
           <div className="mx-4 mb-2 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">

@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { Toaster, toast } from "sonner";
 import { Board } from "@/components/board/Board";
 import { MiddleColumn } from "@/components/middle/MiddleColumn";
 import { RightColumn } from "@/components/right/RightColumn";
 import { Onboarding } from "@/components/onboarding/Onboarding";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
+import { CommandPalette } from "@/components/CommandPalette";
 
 type AppView = "loading" | "onboarding" | "main";
+type Tab = "plan" | "session" | "local" | "pr";
 
 export interface TicketCard {
   id: string;
@@ -21,12 +24,15 @@ export interface TicketCard {
   updated_at: string;
 }
 
+const PLAN_STATUSES = ["backlog", "todo", "planning"];
+
 export default function App() {
   const [view, setView] = useState<AppView>("loading");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [rightColumnVisible, setRightColumnVisible] = useState(true);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [tickets, setTickets] = useState<TicketCard[]>([]);
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>("plan");
 
   useEffect(() => {
     invoke<boolean>("has_repos")
@@ -42,12 +48,13 @@ export default function App() {
   useEffect(() => {
     if (view !== "main") return;
 
-    // Initial fetch from Linear (also persists to SQLite)
     invoke<TicketCard[]>("fetch_linear_tickets")
       .then(setTickets)
-      .catch((e) => console.error("Failed to fetch tickets:", e));
+      .catch((e) => {
+        console.error("Failed to fetch tickets:", e);
+        toast.error("Failed to fetch tickets from Linear");
+      });
 
-    // Listen for background polling updates — read from SQLite
     const unlisten = listen("tickets_updated", () => {
       invoke<TicketCard[]>("get_tickets")
         .then(setTickets)
@@ -60,33 +67,65 @@ export default function App() {
   // Listen for macOS menu events
   useEffect(() => {
     const unlisten1 = listen("open_settings", () => setSettingsOpen(true));
-    const unlisten2 = listen("toggle_right_column", () =>
-      setRightColumnVisible((v) => !v)
-    );
-    return () => {
-      unlisten1.then((f) => f());
-      unlisten2.then((f) => f());
-    };
+    return () => { unlisten1.then((f) => f()); };
   }, []);
+
+  // Auto-select tab based on ticket status
+  useEffect(() => {
+    if (!activeTicket) return;
+    if (PLAN_STATUSES.includes(activeTicket.status)) {
+      setActiveTab("plan");
+    } else {
+      setActiveTab("session");
+    }
+  }, [activeTicketId]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+
+      if (e.metaKey && e.key === "k") {
+        e.preventDefault();
+        setCommandPaletteOpen((v) => !v);
+        return;
+      }
       if (e.metaKey && e.key === ",") {
         e.preventDefault();
         setSettingsOpen(true);
-      }
-      if (e.metaKey && e.key === "b") {
-        e.preventDefault();
-        setRightColumnVisible((v) => !v);
+        return;
       }
       if (e.key === "Escape") {
-        setSettingsOpen(false);
+        if (commandPaletteOpen) setCommandPaletteOpen(false);
+        else if (settingsOpen) setSettingsOpen(false);
+        return;
+      }
+
+      // Tab switching: Cmd+1/2/3/4
+      if (e.metaKey && e.key === "1") { e.preventDefault(); setActiveTab("plan"); return; }
+      if (e.metaKey && e.key === "2") { e.preventDefault(); setActiveTab("session"); return; }
+      if (e.metaKey && e.key === "3") { e.preventDefault(); setActiveTab("local"); return; }
+      if (e.metaKey && e.key === "4") { e.preventDefault(); setActiveTab("pr"); return; }
+
+      // Board navigation (j/k)
+      if (!isInput && !commandPaletteOpen && !settingsOpen) {
+        if (e.key === "j" || e.key === "k") {
+          e.preventDefault();
+          const currentIndex = tickets.findIndex((t) => t.id === activeTicketId);
+          if (e.key === "j") {
+            const next = Math.min(currentIndex + 1, tickets.length - 1);
+            setActiveTicketId(tickets[next]?.id || null);
+          } else {
+            const prev = Math.max(currentIndex - 1, 0);
+            setActiveTicketId(tickets[prev]?.id || null);
+          }
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [commandPaletteOpen, settingsOpen, tickets, activeTicketId]);
 
   const handleOnboardingComplete = useCallback(() => {
     setView("main");
@@ -111,10 +150,17 @@ export default function App() {
     return <Onboarding onComplete={handleOnboardingComplete} />;
   }
 
+  const tabs: { key: Tab; label: string }[] = [
+    { key: "plan", label: "Plan" },
+    { key: "session", label: "Session" },
+    { key: "local", label: "Local" },
+    { key: "pr", label: "PR" },
+  ];
+
   return (
     <div className="flex h-screen flex-col bg-background">
       <div className="flex flex-1 min-h-0 gap-1.5 p-1.5">
-        {/* Left — Board (fixed 280px) */}
+        {/* Left — Board */}
         <div className="w-[280px] min-w-[260px] shrink-0 bg-background rounded-xl overflow-hidden pt-2">
           <Board
             tickets={tickets}
@@ -123,23 +169,163 @@ export default function App() {
           />
         </div>
 
-        {/* Middle — Plan or Session (flexible) */}
-        <div className="flex-1 min-w-0 bg-surface rounded-xl overflow-hidden">
-          <MiddleColumn activeTicket={activeTicket} />
-        </div>
+        {/* Main area — tabs + content */}
+        <div className="flex-1 min-w-0 bg-surface rounded-xl overflow-hidden flex flex-col">
+          {/* Tab bar */}
+          {activeTicket && (
+            <div className="titlebar-drag-region flex shrink-0 items-end px-4 pt-5 pb-0 gap-0">
+              {/* Ticket identifier + title */}
+              <div className="titlebar-no-drag flex items-center gap-2 min-w-0 mr-4 pb-2">
+                <span className="font-mono text-[11px] text-muted-foreground shrink-0">
+                  {activeTicket.identifier}
+                </span>
+                <span className="text-[13px] text-foreground truncate">
+                  {activeTicket.title}
+                </span>
+              </div>
 
-        {/* Right — Local (fixed 400px) */}
-        {rightColumnVisible && (
-          <div className="w-[400px] min-w-[380px] shrink-0 bg-surface rounded-xl overflow-hidden">
-            <RightColumn activeTicket={activeTicket} />
+              <div className="titlebar-no-drag flex items-end gap-0 ml-auto">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors duration-75 border-b-2 ${
+                      activeTab === tab.key
+                        ? "text-foreground border-primary"
+                        : "text-muted-foreground border-transparent hover:text-foreground"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Titlebar drag region when no ticket */}
+          {!activeTicket && (
+            <div className="titlebar-drag-region h-14 shrink-0" />
+          )}
+
+          {/* Tab content */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {activeTab === "plan" && (
+              <MiddleColumn activeTicket={activeTicket} hideToolbar />
+            )}
+            {activeTab === "session" && (
+              <MiddleColumn activeTicket={activeTicket} hideToolbar sessionOnly />
+            )}
+            {activeTab === "local" && (
+              <RightColumn activeTicket={activeTicket} />
+            )}
+            {activeTab === "pr" && (
+              <PrTab activeTicket={activeTicket} />
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       <SettingsPanel
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onRerunSetup={handleRerunSetup}
+      />
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        tickets={tickets}
+        onSelectTicket={setActiveTicketId}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onToggleRightColumn={() => {}}
+        onNewTicket={() => {}}
+      />
+
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          duration: 2000,
+          className: "!bg-surface-elevated !border-border !text-foreground !text-xs",
+        }}
+      />
+    </div>
+  );
+}
+
+// PR tab — shows PR info or iframe
+function PrTab({ activeTicket }: { activeTicket: TicketCard | null }) {
+  const [prInfo, setPrInfo] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!activeTicket?.branch_name) {
+      setPrInfo(null);
+      return;
+    }
+    setLoading(true);
+    invoke("check_pr_status", { branchName: activeTicket.branch_name })
+      .then((info) => setPrInfo(info))
+      .catch(() => setPrInfo(null))
+      .finally(() => setLoading(false));
+  }, [activeTicket?.branch_name]);
+
+  if (!activeTicket) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-muted-foreground">Select a ticket to view PR status.</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!prInfo) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center space-y-2">
+          <p className="text-sm text-muted-foreground">No PR found for this ticket.</p>
+          {activeTicket.branch_name && (
+            <p className="text-xs text-muted-foreground/70">
+              Branch: <span className="font-mono">{activeTicket.branch_name}</span>
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* PR info bar */}
+      <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs font-medium text-foreground">#{prInfo.number}</span>
+          <span className="text-xs text-muted-foreground truncate">{prInfo.title}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {prInfo.approved && (
+            <span className="text-[10px] bg-success/20 text-success rounded-full px-2 py-0.5">Approved</span>
+          )}
+          {prInfo.changes_requested && (
+            <span className="text-[10px] bg-destructive/20 text-destructive rounded-full px-2 py-0.5">Changes requested</span>
+          )}
+          {prInfo.draft && (
+            <span className="text-[10px] bg-muted-foreground/20 text-muted-foreground rounded-full px-2 py-0.5">Draft</span>
+          )}
+          <span className="text-[11px] text-muted-foreground">{prInfo.comment_count} comments</span>
+        </div>
+      </div>
+      {/* PR webview */}
+      <iframe
+        src={prInfo.url}
+        className="flex-1 w-full border-0"
+        title="Pull request"
       />
     </div>
   );
