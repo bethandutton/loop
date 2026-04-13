@@ -117,7 +117,10 @@ export function Board({ tickets, activeTicketId, onSelectTicket }: BoardProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
-  const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
+  const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set([
+    "attention_required", "ready_to_merge", "in_progress", "ready_to_test",
+    "in_review", "planning", "todo",
+  ]));
   const [sortBy, setSortBy] = useState<SortOption>("status");
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [newTicketOpen, setNewTicketOpen] = useState(false);
