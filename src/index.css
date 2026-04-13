@@ -15,14 +15,6 @@
     format("woff2");
 }
 
-@font-face {
-  font-family: "JetBrains Mono";
-  font-style: normal;
-  font-weight: 100 800;
-  font-display: swap;
-  src: url("https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@2.304/fonts/variable/JetBrainsMono%5Bwght%5D.woff2")
-    format("woff2");
-}
 
 /* ---- Dark theme (default) ---- */
 :root[data-theme="dark"],
@@ -151,7 +143,7 @@ body {
 
 /* Mono font utility */
 .font-mono {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 /* Respect reduced motion */
