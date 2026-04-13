@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Plus, ChevronRight, ChevronDown } from "lucide-react";
+import { Plus, ChevronRight, ChevronDown, AlertTriangle } from "lucide-react";
 import type { TicketCard } from "@/App";
 
 const COLUMNS = [
@@ -143,6 +143,30 @@ function BoardColumn({
   );
 }
 
+function PriorityBars({ priority }: { priority: number }) {
+  // 1=Urgent (alert icon), 2=High (3 bars), 3=Medium (2 bars), 4=Low (1 bar), 0=None
+  if (priority === 0) return null;
+
+  if (priority === 1) {
+    return <AlertTriangle size={12} className="text-destructive shrink-0" />;
+  }
+
+  const filled = priority === 2 ? 3 : priority === 3 ? 2 : 1;
+  const barColor = priority === 2 ? "bg-warning" : "bg-muted-foreground";
+
+  return (
+    <div className="flex items-end gap-[2px] h-3 shrink-0" title={PRIORITY_LABELS[priority]}>
+      {[1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className={`w-[3px] rounded-sm ${i <= filled ? barColor : "bg-border"}`}
+          style={{ height: `${4 + i * 3}px` }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function TicketCardView({
   ticket,
   isActive,
@@ -152,8 +176,6 @@ function TicketCardView({
   isActive: boolean;
   onClick: () => void;
 }) {
-  const priorityLabel = PRIORITY_LABELS[ticket.priority] || "";
-
   return (
     <button
       onClick={onClick}
@@ -171,19 +193,7 @@ function TicketCardView({
         <span className="font-mono text-[11px] text-muted-foreground truncate">
           {ticket.identifier}
         </span>
-        {priorityLabel && (
-          <span
-            className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-              ticket.priority <= 1
-                ? "bg-destructive/20 text-destructive"
-                : ticket.priority === 2
-                ? "bg-warning/20 text-warning"
-                : "bg-surface-elevated text-muted-foreground"
-            }`}
-          >
-            {priorityLabel}
-          </span>
-        )}
+        <PriorityBars priority={ticket.priority} />
       </div>
       {/* Row 2: Title */}
       <p className="text-[13px] text-foreground leading-snug line-clamp-2">
