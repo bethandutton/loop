@@ -53,6 +53,10 @@ pub struct LabelConnection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CycleRef {
     pub id: String,
+    #[serde(rename = "startsAt")]
+    pub starts_at: Option<String>,
+    #[serde(rename = "endsAt")]
+    pub ends_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,6 +299,8 @@ impl LinearClient {
                                 }
                                 cycle {
                                     id
+                                    startsAt
+                                    endsAt
                                 }
                                 project {
                                     name
@@ -317,12 +323,19 @@ impl LinearClient {
 /// Map Linear state + cycle to Herd's internal status.
 /// Uses both `state_type` (Linear's category) and `state.name` (the user's
 /// custom workflow state name) to distinguish columns like "In Review".
+fn is_current_cycle(cycle: &CycleRef) -> bool {
+    let now = chrono::Utc::now().to_rfc3339();
+    let started = cycle.starts_at.as_deref().map(|s| s <= now.as_str()).unwrap_or(false);
+    let not_ended = cycle.ends_at.as_deref().map(|e| e >= now.as_str()).unwrap_or(true);
+    started && not_ended
+}
+
 pub fn map_linear_state_to_status(issue: &LinearIssue) -> &'static str {
     let name = issue.state.name.to_lowercase();
 
     match issue.state.state_type.as_str() {
         "backlog" | "unstarted" => {
-            if issue.cycle.is_some() {
+            if issue.cycle.as_ref().map(|c| is_current_cycle(c)).unwrap_or(false) {
                 "todo"
             } else {
                 "backlog"
