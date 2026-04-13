@@ -108,16 +108,17 @@ export default function App() {
 
   const activeTicket = tickets.find((t) => t.id === activeTicketId) || null;
 
-  // Check if active ticket has a PR
+  // Check if active ticket has a PR — reset immediately on ticket change
   useEffect(() => {
-    if (!activeTicket?.branch_name) {
-      setHasPr(false);
-      return;
-    }
-    invoke("check_pr_status", { branchName: activeTicket.branch_name })
-      .then((info) => setHasPr(!!info))
-      .catch(() => setHasPr(false));
-  }, [activeTicket?.id, activeTicket?.branch_name]);
+    setHasPr(false);
+    if (!activeTicket?.branch_name) return;
+
+    let cancelled = false;
+    invoke<any>("check_pr_status", { branchName: activeTicket.branch_name })
+      .then((info) => { if (!cancelled) setHasPr(info != null); })
+      .catch(() => { if (!cancelled) setHasPr(false); });
+    return () => { cancelled = true; };
+  }, [activeTicket?.id]);
 
   // When switching tickets, keep current tab if it's still enabled, otherwise default to Linear Ticket
   useEffect(() => {
