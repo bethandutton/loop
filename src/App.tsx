@@ -36,7 +36,6 @@ export default function App() {
   const [tickets, setTickets] = useState<TicketCard[]>([]);
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("plan");
-  const [hasPr, setHasPr] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const isNavigating = useRef(false);
@@ -108,18 +107,7 @@ export default function App() {
 
   const activeTicket = tickets.find((t) => t.id === activeTicketId) || null;
 
-  // Check if active ticket has a PR — only for tickets with real branches (in progress+)
   const WORKING_STATUSES = ["in_progress", "human_input", "waiting_for_review", "ready_to_merge"];
-  useEffect(() => {
-    setHasPr(false);
-    if (!activeTicket?.branch_name || !WORKING_STATUSES.includes(activeTicket.status)) return;
-
-    let cancelled = false;
-    invoke<any>("check_pr_status", { branchName: activeTicket.branch_name })
-      .then((info) => { if (!cancelled) setHasPr(info != null); })
-      .catch(() => { if (!cancelled) setHasPr(false); });
-    return () => { cancelled = true; };
-  }, [activeTicket?.id]);
 
   // When switching tickets, keep current tab if it's still enabled, otherwise default to Linear Ticket
   useEffect(() => {
@@ -207,7 +195,7 @@ export default function App() {
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode; enabled: boolean; disabledReason: string }[] = [
     { key: "plan", label: "Linear Ticket", icon: <SquareKanban size={13} />, enabled: hasTicket, disabledReason: "Select a ticket to view" },
-    { key: "pr", label: "GitHub PR", icon: <GitPullRequest size={13} />, enabled: hasPr || ["waiting_for_review", "human_input", "ready_to_merge"].includes(activeTicket?.status || ""), disabledReason: hasBranch ? "No PR found for this branch yet" : "Start work on a ticket to create a branch and PR" },
+    { key: "pr", label: "GitHub PR", icon: <GitPullRequest size={13} />, enabled: hasBranch, disabledReason: "Start work on a ticket to see its PR" },
     { key: "local", label: "Local Preview", icon: <Globe size={13} />, enabled: hasBranch, disabledReason: "Start work on a ticket to enable local preview" },
     { key: "session", label: "Agent", icon: <Bot size={13} />, enabled: hasBranch || (hasTicket && PLAN_STATUSES.includes(activeTicket!.status)), disabledReason: "Move ticket to Planning first to start an agent session" },
   ];
@@ -414,31 +402,23 @@ function LocalPreviewTab({ activeTicket }: { activeTicket: TicketCard | null }) 
 }
 
 function PrTab({ activeTicket }: { activeTicket: TicketCard | null }) {
-  const [prInfo, setPrInfo] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [repoUrl, setRepoUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    setPrInfo(null);
-    setError(null);
-    if (!activeTicket?.branch_name) return;
+    invoke<string | null>("get_github_repo_url")
+      .then(setRepoUrl)
+      .catch(() => setRepoUrl(null));
+  }, []);
 
-    setLoading(true);
-    invoke<any>("check_pr_status", { branchName: activeTicket.branch_name })
-      .then((info) => setPrInfo(info))
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [activeTicket?.id]);
-
-  if (!activeTicket) {
+  if (!activeTicket?.branch_name) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">Select a ticket.</p>
+        <p className="text-sm text-muted-foreground">No branch for this ticket.</p>
       </div>
     );
   }
 
-  if (loading) {
+  if (!repoUrl) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -446,71 +426,30 @@ function PrTab({ activeTicket }: { activeTicket: TicketCard | null }) {
     );
   }
 
-  if (error) {
-    return (
-      <div className="flex h-full items-center justify-center p-8">
-        <div className="text-center space-y-2">
-          <p className="text-sm text-muted-foreground">Failed to check PR status.</p>
-          <p className="text-xs text-destructive/70">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!prInfo) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center space-y-2">
-          <p className="text-sm text-muted-foreground">No PR found.</p>
-          {activeTicket.branch_name && (
-            <p className="text-xs text-muted-foreground/70">
-              Branch: <span className="font-mono">{activeTicket.branch_name}</span>
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
+  // GitHub pulls page filtered by the branch — shows the PR if it exists
+  const prSearchUrl = `${repoUrl}/pulls?q=head:${encodeURIComponent(activeTicket.branch_name)}`;
+  const directPrUrl = `${repoUrl}/pulls?q=is:pr+head:${encodeURIComponent(activeTicket.branch_name)}`;
 
   return (
-    <div className="p-8 max-w-2xl mx-auto space-y-4">
-      {/* PR header */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground font-mono text-sm">#{prInfo.number}</span>
-          {prInfo.draft && (
-            <span className="text-[10px] bg-muted-foreground/20 text-muted-foreground rounded-full px-2 py-0.5">Draft</span>
-          )}
-          {prInfo.merged && (
-            <span className="text-[10px] bg-primary/20 text-primary rounded-full px-2 py-0.5">Merged</span>
-          )}
-        </div>
-        <h2 className="text-lg font-semibold text-foreground">{prInfo.title}</h2>
+    <div className="flex h-full flex-col">
+      <div className="shrink-0 px-4 py-1.5 border-b border-border/50 flex items-center justify-between">
+        <span className="font-mono text-[11px] text-muted-foreground truncate">
+          {activeTicket.branch_name}
+        </span>
+        <a
+          href={directPrUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[11px] text-primary hover:underline shrink-0 ml-2"
+        >
+          Open in browser
+        </a>
       </div>
-
-      {/* Status badges */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {prInfo.approved && (
-          <span className="text-xs bg-success/20 text-success rounded-full px-2.5 py-1">Approved</span>
-        )}
-        {prInfo.changes_requested && (
-          <span className="text-xs bg-destructive/20 text-destructive rounded-full px-2.5 py-1">Changes requested</span>
-        )}
-        <span className="text-xs text-muted-foreground">{prInfo.comment_count} comments</span>
-      </div>
-
-      {/* Open in browser */}
-      <a
-        href={prInfo.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
-      >
-        Open in GitHub
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="opacity-70">
-          <path d="M3.5 1.5H10.5V8.5M10.5 1.5L1.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </a>
+      <iframe
+        src={prSearchUrl}
+        className="flex-1 w-full border-0"
+        title="GitHub PR"
+      />
     </div>
   );
 }

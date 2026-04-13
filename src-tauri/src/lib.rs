@@ -766,6 +766,16 @@ struct PrInfo {
     comment_count: i64,
 }
 
+#[tauri::command]
+fn get_github_repo_url(state: tauri::State<AppState>) -> Result<Option<String>, String> {
+    let repo = match state.db.get_active_repo().map_err(|e| e.to_string())? {
+        Some(r) => r,
+        None => return Ok(None),
+    };
+    let (owner, name) = github::parse_owner_repo(&repo.path)?;
+    Ok(Some(format!("https://github.com/{}/{}", owner, name)))
+}
+
 // ---- Keychain commands ----
 
 #[tauri::command]
@@ -1010,6 +1020,7 @@ pub fn run() {
             stop_all_services,
             get_running_services,
             check_pr_status,
+            get_github_repo_url,
             store_token,
             get_token,
             delete_token,
