@@ -232,6 +232,30 @@ export function PlanEditor({ ticket, hideToolbar }: PlanEditorProps) {
       {/* Content area */}
       <div className="flex-1 overflow-y-auto p-8">
         <div className="max-w-3xl mx-auto">
+          {/* Ticket header */}
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-mono text-[11px] text-muted-foreground">{ticket.identifier}</span>
+              <span className="text-[11px] text-muted-foreground capitalize">{ticket.status.replace(/_/g, " ")}</span>
+            </div>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground mb-2">{ticket.title}</h1>
+            {(ticket.tags.length > 0 || (ticket as any).project || (ticket as any).assignee) && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {(ticket as any).project && (
+                  <span className="text-[11px] bg-surface rounded-full px-2 py-0.5 text-muted-foreground">{(ticket as any).project}</span>
+                )}
+                {(ticket as any).assignee && (
+                  <span className="text-[11px] bg-surface rounded-full px-2 py-0.5 text-muted-foreground">{(ticket as any).assignee}</span>
+                )}
+                {ticket.tags.map((tag) => (
+                  <span key={tag} className="text-[11px] bg-primary/10 text-primary rounded-full px-2 py-0.5">{tag}</span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <hr className="border-border mb-6" />
+
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
               <Loader2 size={14} className="animate-spin" />
