@@ -271,43 +271,6 @@ export default function App() {
           {/* Content panel */}
           <div className="flex-1 min-h-0 bg-surface rounded-xl overflow-hidden flex flex-col">
             {/* Ticket title bar */}
-            {activeTicket && (
-              <div className="shrink-0 px-4 py-2.5 border-b border-border/50">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] text-muted-foreground shrink-0">
-                    {activeTicket.identifier}
-                  </span>
-                  <EditableTitle
-                    ticketId={activeTicket.id}
-                    title={activeTicket.title}
-                    onSaved={(newTitle) => {
-                      setTickets((prev) =>
-                        prev.map((t) => t.id === activeTicket.id ? { ...t, title: newTitle } : t)
-                      );
-                    }}
-                  />
-                </div>
-                {(activeTicket.project || activeTicket.assignee || activeTicket.branch_name) && (
-                  <div className="flex items-center gap-3 mt-1">
-                    {activeTicket.project && (
-                      <span className="text-[11px] text-muted-foreground">
-                        {activeTicket.project}
-                      </span>
-                    )}
-                    {activeTicket.assignee && (
-                      <span className="text-[11px] text-muted-foreground">
-                        {activeTicket.assignee}
-                      </span>
-                    )}
-                    {activeTicket.branch_name && (
-                      <span className="font-mono text-[10px] text-muted-foreground/60">
-                        {activeTicket.branch_name}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Tab content */}
             <div className="flex-1 min-h-0 overflow-hidden">
