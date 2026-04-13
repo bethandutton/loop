@@ -312,7 +312,7 @@ export default function App() {
             {/* Tab content */}
             <div className="flex-1 min-h-0 overflow-hidden">
             {activeTab === "plan" && (
-              <MiddleColumn activeTicket={activeTicket} hideToolbar />
+              <MiddleColumn activeTicket={activeTicket} hideToolbar planOnly />
             )}
             {activeTab === "session" && (
               <MiddleColumn activeTicket={activeTicket} hideToolbar sessionOnly />

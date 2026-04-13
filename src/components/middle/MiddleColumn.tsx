@@ -25,9 +25,10 @@ interface MiddleColumnProps {
   activeTicket: TicketCard | null;
   hideToolbar?: boolean;
   sessionOnly?: boolean;
+  planOnly?: boolean;
 }
 
-export function MiddleColumn({ activeTicket, hideToolbar, sessionOnly }: MiddleColumnProps) {
+export function MiddleColumn({ activeTicket, hideToolbar, sessionOnly, planOnly }: MiddleColumnProps) {
   const [claudeStatus, setClaudeStatus] = useState<ClaudeCodeStatus | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -86,8 +87,8 @@ export function MiddleColumn({ activeTicket, hideToolbar, sessionOnly }: MiddleC
     }
   };
 
-  // Plan mode (when not forced into session-only)
-  if (!sessionOnly && activeTicket && PLAN_STATUSES.includes(activeTicket.status)) {
+  // Plan mode — always show for planOnly, or when ticket is in a plan status
+  if (activeTicket && (planOnly || (!sessionOnly && PLAN_STATUSES.includes(activeTicket.status)))) {
     return <PlanEditor ticket={activeTicket} hideToolbar={hideToolbar} />;
   }
 
