@@ -18,6 +18,7 @@ export function PlanEditor({ ticket, hideToolbar }: PlanEditorProps) {
   const [enhancing, setEnhancing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const lastRemoteContent = useRef<string>("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -27,6 +28,7 @@ export function PlanEditor({ ticket, hideToolbar }: PlanEditorProps) {
     setDirty(false);
     setEditing(false);
     setLoading(true);
+    setError(null);
     invoke<string | null>("get_ticket_description", { ticketId: ticket.id })
       .then((desc) => {
         const val = desc || "";
@@ -35,7 +37,10 @@ export function PlanEditor({ ticket, hideToolbar }: PlanEditorProps) {
         setDirty(false);
         setConflict(false);
       })
-      .catch(() => {})
+      .catch((e) => {
+        console.error("Failed to load ticket description:", e);
+        setError(String(e));
+      })
       .finally(() => setLoading(false));
   }, [ticket.id]);
 
@@ -214,6 +219,13 @@ export function PlanEditor({ ticket, hideToolbar }: PlanEditorProps) {
           >
             Reload
           </button>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {error && (
+        <div className="mx-4 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
+          <p className="text-xs text-destructive">{error}</p>
         </div>
       )}
 
