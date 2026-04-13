@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Plus, Search, X, Filter, Check, AlertTriangle, Copy, ExternalLink, ArrowUpDown, Loader2, GitBranch, ChevronRight as ChevronRightIcon, List, LayoutGrid } from "lucide-react";
+import { Plus, Search, X, Filter, Check, AlertTriangle, Copy, ExternalLink, ArrowUpDown, Loader2, GitBranch, ChevronRight as ChevronRightIcon, List, LayoutGrid, SquareKanban, FileText } from "lucide-react";
 import type { TicketCard } from "@/App";
 
 // Status config: priority for sort order, icon style, color
@@ -119,10 +119,13 @@ export function Board({ tickets, activeTicketId, onSelectTicket }: BoardProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortOption>("status");
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [newTicketOpen, setNewTicketOpen] = useState(false);
   const [newTicketTitle, setNewTicketTitle] = useState("");
   const [newTicketCreating, setNewTicketCreating] = useState(false);
+  const [newTicketMode, setNewTicketMode] = useState<"linear" | "draft">("linear");
   const newTicketRef = useRef<HTMLInputElement>(null);
+  const createMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
 
@@ -320,18 +323,46 @@ export function Board({ tickets, activeTicketId, onSelectTicket }: BoardProps) {
           >
             <Search size={14} />
           </button>
-          {/* New ticket */}
-          <button
-            onClick={() => setNewTicketOpen(!newTicketOpen)}
-            className={`flex h-6 w-6 items-center justify-center rounded transition-colors duration-75 ${
-              newTicketOpen
-                ? "bg-primary/10 text-primary"
-                : "hover:bg-surface-elevated text-muted-foreground hover:text-foreground"
-            }`}
-            title="New ticket (⌘N)"
-          >
-            <Plus size={14} />
-          </button>
+          {/* New ticket dropdown */}
+          <div className="relative" ref={createMenuRef}>
+            <button
+              onClick={() => setCreateMenuOpen(!createMenuOpen)}
+              className={`flex h-6 w-6 items-center justify-center rounded transition-colors duration-75 ${
+                createMenuOpen
+                  ? "bg-primary/10 text-primary"
+                  : "hover:bg-surface-elevated text-muted-foreground hover:text-foreground"
+              }`}
+              title="New (⌘N)"
+            >
+              <Plus size={14} />
+            </button>
+            {createMenuOpen && (
+              <div className="absolute right-0 top-7 z-50 w-48 rounded-md border border-border bg-surface-elevated py-1 shadow-lg">
+                <button
+                  onClick={() => {
+                    setNewTicketMode("linear");
+                    setNewTicketOpen(true);
+                    setCreateMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-foreground hover:bg-primary/5 transition-colors duration-75"
+                >
+                  <SquareKanban size={12} className="text-muted-foreground" />
+                  New Linear ticket
+                </button>
+                <button
+                  onClick={() => {
+                    setNewTicketMode("draft");
+                    setNewTicketOpen(true);
+                    setCreateMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-foreground hover:bg-primary/5 transition-colors duration-75"
+                >
+                  <FileText size={12} className="text-muted-foreground" />
+                  New local draft
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -369,34 +400,41 @@ export function Board({ tickets, activeTicketId, onSelectTicket }: BoardProps) {
       {/* New ticket form */}
       {newTicketOpen && (
         <div className="shrink-0 px-3 pb-2">
-          <div className="flex items-center gap-2 rounded-md bg-surface px-2 py-1.5">
-            <input
-              ref={newTicketRef}
-              type="text"
-              value={newTicketTitle}
-              onChange={(e) => setNewTicketTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreateTicket();
-                if (e.key === "Escape") {
-                  setNewTicketTitle("");
-                  setNewTicketOpen(false);
-                }
-              }}
-              placeholder="New ticket title..."
-              className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 outline-none"
-              disabled={newTicketCreating}
-            />
-            {newTicketCreating ? (
-              <Loader2 size={12} className="animate-spin text-muted-foreground" />
-            ) : (
-              <button
-                onClick={handleCreateTicket}
-                disabled={!newTicketTitle.trim()}
-                className="text-primary hover:text-primary/80 disabled:text-muted-foreground/30"
-              >
-                <Plus size={14} />
-              </button>
-            )}
+          <div className="rounded-md bg-surface px-2 py-1.5 space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                {newTicketMode === "linear" ? "Linear ticket" : "Local draft"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                ref={newTicketRef}
+                type="text"
+                value={newTicketTitle}
+                onChange={(e) => setNewTicketTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateTicket();
+                  if (e.key === "Escape") {
+                    setNewTicketTitle("");
+                    setNewTicketOpen(false);
+                  }
+                }}
+                placeholder={newTicketMode === "linear" ? "Ticket title..." : "Draft title..."}
+                className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 outline-none"
+                disabled={newTicketCreating}
+              />
+              {newTicketCreating ? (
+                <Loader2 size={12} className="animate-spin text-muted-foreground" />
+              ) : (
+                <button
+                  onClick={handleCreateTicket}
+                  disabled={!newTicketTitle.trim()}
+                  className="text-primary hover:text-primary/80 disabled:text-muted-foreground/30"
+                >
+                  <Plus size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -25,6 +25,8 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
   const [previewPort, setPreviewPort] = useState("3000");
   const [copyFiles, setCopyFiles] = useState(".env*");
   const [mirrorToLinear, setMirrorToLinear] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"appearance" | "connections" | "project">("appearance");
+  const [projectRules, setProjectRules] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -59,6 +61,10 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
     invoke<string | null>("get_setting", { key: "mirror_to_linear" }).then((val) => {
       setMirrorToLinear(val === "true");
     }).catch(() => {});
+
+    invoke<string | null>("get_setting", { key: "project_rules" }).then((val) => {
+      if (val) setProjectRules(val);
+    }).catch(() => {});
   }, [open]);
 
   if (!open) return null;
@@ -66,20 +72,38 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-lg rounded-lg border border-border bg-surface-elevated shadow-lg">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold">Settings</h2>
-          <button
-            onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded hover:bg-surface"
-          >
-            <X size={14} />
-          </button>
+        {/* Header with tabs */}
+        <div className="border-b border-border px-4 pt-3 pb-0">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-semibold">Settings</h2>
+            <button
+              onClick={onClose}
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-surface"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div className="flex gap-0">
+            {(["appearance", "connections", "project"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setSettingsTab(tab)}
+                className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors duration-75 ${
+                  settingsTab === tab
+                    ? "text-foreground border-primary"
+                    : "text-muted-foreground border-transparent hover:text-foreground"
+                }`}
+              >
+                {tab === "appearance" ? "Appearance" : tab === "connections" ? "Connections" : "Project Rules"}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Content */}
         <div className="max-h-[70vh] overflow-y-auto p-4 space-y-6">
           {/* Appearance */}
+          {settingsTab === "appearance" && (
           <section className="space-y-3">
             <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Appearance
@@ -121,8 +145,10 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
               />
             </div>
           </section>
+          )}
 
           {/* Connections */}
+          {settingsTab === "connections" && (
           <section className="space-y-3">
             <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Connections
@@ -236,6 +262,49 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
               </label>
             </div>
           </section>
+          )}
+
+          {/* Project Rules */}
+          {settingsTab === "project" && (
+          <section className="space-y-3">
+            <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Project Rules
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Rules that guide how agents work on your project. These are saved as CLAUDE.md in your repo.
+            </p>
+            <textarea
+              value={projectRules}
+              onChange={(e) => setProjectRules(e.target.value)}
+              className="w-full min-h-[300px] resize-none rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              placeholder="# Project Rules&#10;&#10;Add rules for how agents should work in this project..."
+            />
+            <Button
+              size="sm"
+              onClick={async () => {
+                await invoke("set_setting", { key: "project_rules", value: projectRules }).catch(() => {});
+              }}
+            >
+              Save Rules
+            </Button>
+
+            <div className="pt-3 border-t border-border space-y-2">
+              <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Connect Claude Code
+              </h4>
+              <p className="text-xs text-muted-foreground">
+                Herd uses your existing Claude Code installation to run agent sessions.
+              </p>
+              <div className="rounded-md border border-border bg-background px-3 py-2 space-y-1.5">
+                <p className="text-[11px] text-muted-foreground">1. Install Claude Code:</p>
+                <code className="block font-mono text-[11px] text-foreground bg-surface px-2 py-1 rounded">npm install -g @anthropic-ai/claude-code</code>
+                <p className="text-[11px] text-muted-foreground mt-2">2. Log in:</p>
+                <code className="block font-mono text-[11px] text-foreground bg-surface px-2 py-1 rounded">claude auth login</code>
+                <p className="text-[11px] text-muted-foreground/70 mt-2">Uses your existing Claude Max or API subscription.</p>
+              </div>
+            </div>
+          </section>
+          )}
         </div>
 
         {/* Footer */}

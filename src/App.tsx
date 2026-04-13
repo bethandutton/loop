@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Toaster, toast } from "sonner";
-import { SquareKanban, GitPullRequest, Globe, Bot } from "lucide-react";
+import { SquareKanban, GitPullRequest, Globe, Bot, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { Board } from "@/components/board/Board";
 import { MiddleColumn } from "@/components/middle/MiddleColumn";
 import { RightColumn } from "@/components/right/RightColumn";
@@ -36,6 +36,38 @@ export default function App() {
   const [tickets, setTickets] = useState<TicketCard[]>([]);
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("plan");
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const isNavigating = useRef(false);
+
+  const navigateToTicket = useCallback((id: string) => {
+    if (isNavigating.current) return;
+    setActiveTicketId(id);
+    setHistory((prev) => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      newHistory.push(id);
+      return newHistory;
+    });
+    setHistoryIndex((i) => i + 1);
+  }, [historyIndex]);
+
+  const goBack = useCallback(() => {
+    if (historyIndex <= 0) return;
+    isNavigating.current = true;
+    const newIndex = historyIndex - 1;
+    setHistoryIndex(newIndex);
+    setActiveTicketId(history[newIndex]);
+    setTimeout(() => { isNavigating.current = false; }, 0);
+  }, [history, historyIndex]);
+
+  const goForward = useCallback(() => {
+    if (historyIndex >= history.length - 1) return;
+    isNavigating.current = true;
+    const newIndex = historyIndex + 1;
+    setHistoryIndex(newIndex);
+    setActiveTicketId(history[newIndex]);
+    setTimeout(() => { isNavigating.current = false; }, 0);
+  }, [history, historyIndex]);
 
   useEffect(() => {
     invoke<boolean>("has_repos")
@@ -120,10 +152,10 @@ export default function App() {
           const currentIndex = tickets.findIndex((t) => t.id === activeTicketId);
           if (e.key === "j") {
             const next = Math.min(currentIndex + 1, tickets.length - 1);
-            setActiveTicketId(tickets[next]?.id || null);
+            if (tickets[next]) navigateToTicket(tickets[next].id);
           } else {
             const prev = Math.max(currentIndex - 1, 0);
-            setActiveTicketId(tickets[prev]?.id || null);
+            if (tickets[prev]) navigateToTicket(tickets[prev].id);
           }
         }
       }
@@ -170,12 +202,33 @@ export default function App() {
     <div className="flex h-screen flex-col bg-background">
       <div className="flex flex-1 min-h-0 gap-1.5 p-1.5">
         {/* Left — Board */}
-        <div className="w-[280px] min-w-[260px] shrink-0 bg-background rounded-xl overflow-hidden pt-2">
+        <div className="w-[280px] min-w-[260px] shrink-0 bg-background rounded-xl overflow-hidden flex flex-col">
+          {/* Nav buttons — right of traffic lights */}
+          <div className="titlebar-drag-region flex items-center gap-0.5 px-[76px] pt-2 pb-0 shrink-0">
+            <button
+              onClick={goBack}
+              disabled={historyIndex <= 0}
+              className="titlebar-no-drag flex h-7 w-7 items-center justify-center rounded-lg hover:bg-surface-elevated text-muted-foreground hover:text-foreground disabled:text-muted-foreground/20 disabled:hover:bg-transparent transition-colors duration-75"
+              title="Back"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={goForward}
+              disabled={historyIndex >= history.length - 1}
+              className="titlebar-no-drag flex h-7 w-7 items-center justify-center rounded-lg hover:bg-surface-elevated text-muted-foreground hover:text-foreground disabled:text-muted-foreground/20 disabled:hover:bg-transparent transition-colors duration-75"
+              title="Forward"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
           <Board
             tickets={tickets}
             activeTicketId={activeTicketId}
-            onSelectTicket={setActiveTicketId}
+            onSelectTicket={navigateToTicket}
           />
+          </div>
         </div>
 
         {/* Main area */}
@@ -220,9 +273,15 @@ export default function App() {
                   <span className="font-mono text-[11px] text-muted-foreground shrink-0">
                     {activeTicket.identifier}
                   </span>
-                  <span className="text-[13px] text-foreground truncate">
-                    {activeTicket.title}
-                  </span>
+                  <EditableTitle
+                    ticketId={activeTicket.id}
+                    title={activeTicket.title}
+                    onSaved={(newTitle) => {
+                      setTickets((prev) =>
+                        prev.map((t) => t.id === activeTicket.id ? { ...t, title: newTitle } : t)
+                      );
+                    }}
+                  />
                 </div>
                 {(activeTicket.project || activeTicket.assignee || activeTicket.branch_name) && (
                   <div className="flex items-center gap-3 mt-1">
@@ -275,7 +334,7 @@ export default function App() {
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         tickets={tickets}
-        onSelectTicket={setActiveTicketId}
+        onSelectTicket={navigateToTicket}
         onOpenSettings={() => setSettingsOpen(true)}
         onToggleRightColumn={() => {}}
         onNewTicket={() => {}}
@@ -293,6 +352,54 @@ export default function App() {
 }
 
 // PR tab — shows PR info or iframe
+// Editable title — click to edit, Enter to save, Escape to cancel
+function EditableTitle({ ticketId, title, onSaved }: { ticketId: string; title: string; onSaved: (t: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setValue(title); }, [title]);
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+
+  const save = async () => {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === title) { setEditing(false); setValue(title); return; }
+    try {
+      await invoke("update_ticket_title", { ticketId, title: trimmed });
+      onSaved(trimmed);
+    } catch (e) {
+      console.error("Failed to update title:", e);
+      setValue(title);
+    }
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") { setValue(title); setEditing(false); }
+        }}
+        className="text-[13px] text-foreground bg-transparent outline-none border-b border-primary flex-1 min-w-0"
+      />
+    );
+  }
+
+  return (
+    <span
+      onClick={() => setEditing(true)}
+      className="text-[13px] text-foreground truncate cursor-text hover:border-b hover:border-border"
+    >
+      {title}
+    </span>
+  );
+}
+
 // Linear Ticket tab — embeds the Linear issue page
 function LinearTicketTab({ activeTicket }: { activeTicket: TicketCard | null }) {
   if (!activeTicket) {

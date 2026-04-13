@@ -469,6 +469,31 @@ async fn enhance_plan(
 }
 
 #[tauri::command]
+async fn update_ticket_title(ticket_id: String, title: String) -> Result<(), String> {
+    let token = keychain::get_secret("linear_api_token")?
+        .ok_or("No Linear API token configured")?;
+
+    let escaped = title.replace('\\', "\\\\").replace('"', "\\\"");
+    let query = format!(
+        r#"mutation {{ issueUpdate(id: "{}", input: {{ title: "{}" }}) {{ success }} }}"#,
+        ticket_id, escaped
+    );
+    let body = serde_json::json!({ "query": query });
+    let resp = reqwest::Client::new()
+        .post("https://api.linear.app/graphql")
+        .header("Authorization", &token)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("Linear API error: {}", resp.status()));
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn update_ticket_priority(state: tauri::State<AppState>, ticket_id: String, priority: i64) -> Result<(), String> {
     state.db.update_ticket_priority(&ticket_id, priority).map_err(|e| e.to_string())
 }
@@ -967,6 +992,7 @@ pub fn run() {
             get_tickets,
             update_ticket_status,
             update_ticket_priority,
+            update_ticket_title,
             create_linear_ticket,
             verify_linear_token,
             get_ticket_description,
