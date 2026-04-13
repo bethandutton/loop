@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Plus } from "lucide-react";
+import { Plus, ChevronRight, ChevronDown } from "lucide-react";
 import type { TicketCard } from "@/App";
 
 const COLUMNS = [
@@ -61,7 +61,8 @@ export function Board({ tickets, activeTicketId, onSelectTicket }: BoardProps) {
       <div className="flex-1 overflow-y-auto" style={{ padding: "var(--space-list-padding)" }}>
         <div className="flex flex-col" style={{ gap: "var(--space-section-gap)" }}>
           {COLUMNS.map((col) => {
-            const colTickets = tickets.filter((t) => t.status === col.key);
+            let colTickets = tickets.filter((t) => t.status === col.key);
+            const maxShow = col.key === "done" ? 5 : undefined;
             return (
               <BoardColumn
                 key={col.key}
@@ -69,6 +70,7 @@ export function Board({ tickets, activeTicketId, onSelectTicket }: BoardProps) {
                 tickets={colTickets}
                 activeTicketId={activeTicketId}
                 onSelectTicket={onSelectTicket}
+                maxShow={maxShow}
               />
             );
           })}
@@ -83,35 +85,58 @@ function BoardColumn({
   tickets,
   activeTicketId,
   onSelectTicket,
+  maxShow,
 }: {
   label: string;
   tickets: TicketCard[];
   activeTicketId: string | null;
   onSelectTicket: (id: string) => void;
+  maxShow?: number;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const displayTickets = maxShow ? tickets.slice(0, maxShow) : tickets;
+  const hiddenCount = maxShow ? Math.max(0, tickets.length - maxShow) : 0;
+
   return (
     <div>
-      <div className="flex items-center justify-between px-1 pb-1">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </span>
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex w-full items-center justify-between px-1 pb-1 hover:text-foreground transition-colors duration-75"
+      >
+        <div className="flex items-center gap-1">
+          {collapsed ? (
+            <ChevronRight size={12} className="text-muted-foreground" />
+          ) : (
+            <ChevronDown size={12} className="text-muted-foreground" />
+          )}
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {label}
+          </span>
+        </div>
         {tickets.length > 0 && (
           <span className="text-[11px] text-muted-foreground">{tickets.length}</span>
         )}
-      </div>
-      {tickets.length === 0 ? (
-        <div className="text-[11px] text-muted-foreground/50 px-1">—</div>
-      ) : (
-        <div className="flex flex-col" style={{ gap: "var(--space-card-gap)" }}>
-          {tickets.map((ticket) => (
-            <TicketCardView
-              key={ticket.id}
-              ticket={ticket}
-              isActive={ticket.id === activeTicketId}
-              onClick={() => onSelectTicket(ticket.id)}
-            />
-          ))}
-        </div>
+      </button>
+      {!collapsed && (
+        tickets.length === 0 ? (
+          <div className="text-[11px] text-muted-foreground/50 px-1 pl-5">—</div>
+        ) : (
+          <div className="flex flex-col" style={{ gap: "var(--space-card-gap)" }}>
+            {displayTickets.map((ticket) => (
+              <TicketCardView
+                key={ticket.id}
+                ticket={ticket}
+                isActive={ticket.id === activeTicketId}
+                onClick={() => onSelectTicket(ticket.id)}
+              />
+            ))}
+            {hiddenCount > 0 && (
+              <p className="text-[11px] text-muted-foreground/60 px-1 pl-3">
+                +{hiddenCount} more
+              </p>
+            )}
+          </div>
+        )
       )}
     </div>
   );
