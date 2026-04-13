@@ -36,6 +36,7 @@ export default function App() {
   const [tickets, setTickets] = useState<TicketCard[]>([]);
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("plan");
+  const [hasPr, setHasPr] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const isNavigating = useRef(false);
@@ -104,6 +105,17 @@ export default function App() {
     const unlisten1 = listen("open_settings", () => setSettingsOpen(true));
     return () => { unlisten1.then((f) => f()); };
   }, []);
+
+  // Check if active ticket has a PR
+  useEffect(() => {
+    if (!activeTicket?.branch_name) {
+      setHasPr(false);
+      return;
+    }
+    invoke("check_pr_status", { branchName: activeTicket.branch_name })
+      .then((info) => setHasPr(!!info))
+      .catch(() => setHasPr(false));
+  }, [activeTicket?.id, activeTicket?.branch_name]);
 
   // When switching tickets, keep current tab if it's still enabled, otherwise default to Linear Ticket
   useEffect(() => {
@@ -193,7 +205,7 @@ export default function App() {
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode; enabled: boolean; disabledReason: string }[] = [
     { key: "plan", label: "Linear Ticket", icon: <SquareKanban size={13} />, enabled: hasTicket, disabledReason: "Select a ticket to view" },
-    { key: "pr", label: "GitHub PR", icon: <GitPullRequest size={13} />, enabled: hasBranch, disabledReason: "Start work on a ticket to create a branch and PR" },
+    { key: "pr", label: "GitHub PR", icon: <GitPullRequest size={13} />, enabled: hasPr, disabledReason: hasBranch ? "No PR found for this branch yet" : "Start work on a ticket to create a branch and PR" },
     { key: "local", label: "Local Preview", icon: <Globe size={13} />, enabled: hasBranch, disabledReason: "Start work on a ticket to enable local preview" },
     { key: "session", label: "Agent", icon: <Bot size={13} />, enabled: hasBranch || (hasTicket && PLAN_STATUSES.includes(activeTicket!.status)), disabledReason: "Move ticket to Planning first to start an agent session" },
   ];
