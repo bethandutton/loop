@@ -144,6 +144,113 @@ impl LinearClient {
         Ok(data.viewer)
     }
 
+    pub async fn get_viewer_team_id(&self) -> Result<String, String> {
+        #[derive(serde::Deserialize)]
+        struct TeamsData {
+            viewer: ViewerTeams,
+        }
+        #[derive(serde::Deserialize)]
+        struct ViewerTeams {
+            #[serde(rename = "teamMemberships")]
+            team_memberships: TeamMembershipConnection,
+        }
+        #[derive(serde::Deserialize)]
+        struct TeamMembershipConnection {
+            nodes: Vec<TeamMembership>,
+        }
+        #[derive(serde::Deserialize)]
+        struct TeamMembership {
+            team: TeamRef,
+        }
+        #[derive(serde::Deserialize)]
+        struct TeamRef {
+            id: String,
+        }
+
+        let data: TeamsData = self
+            .query(
+                r#"query {
+                    viewer {
+                        teamMemberships(first: 1) {
+                            nodes {
+                                team { id }
+                            }
+                        }
+                    }
+                }"#,
+            )
+            .await?;
+
+        data.viewer
+            .team_memberships
+            .nodes
+            .into_iter()
+            .next()
+            .map(|m| m.team.id)
+            .ok_or_else(|| "No team found for current user".to_string())
+    }
+
+    pub async fn get_viewer_id(&self) -> Result<String, String> {
+        let viewer = self.get_viewer().await?;
+        Ok(viewer.id)
+    }
+
+    pub async fn create_issue(
+        &self,
+        team_id: &str,
+        title: &str,
+        description: &str,
+        priority: i64,
+        assignee_id: &str,
+    ) -> Result<LinearIssue, String> {
+        let escaped_title = title.replace('\\', "\\\\").replace('"', "\\\"");
+        let escaped_desc = description.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+
+        let query = format!(
+            r#"mutation {{
+                issueCreate(input: {{
+                    teamId: "{team_id}",
+                    title: "{escaped_title}",
+                    description: "{escaped_desc}",
+                    priority: {priority},
+                    assigneeId: "{assignee_id}"
+                }}) {{
+                    success
+                    issue {{
+                        id
+                        identifier
+                        title
+                        description
+                        priority
+                        branchName
+                        state {{ name type }}
+                        labels {{ nodes {{ name }} }}
+                        cycle {{ id }}
+                        createdAt
+                        updatedAt
+                    }}
+                }}
+            }}"#
+        );
+
+        #[derive(serde::Deserialize)]
+        struct CreateData {
+            #[serde(rename = "issueCreate")]
+            issue_create: IssueCreatePayload,
+        }
+        #[derive(serde::Deserialize)]
+        struct IssueCreatePayload {
+            success: bool,
+            issue: LinearIssue,
+        }
+
+        let data: CreateData = self.query(&query).await?;
+        if !data.issue_create.success {
+            return Err("Linear issueCreate returned success=false".to_string());
+        }
+        Ok(data.issue_create.issue)
+    }
+
     pub async fn get_assigned_issues(&self) -> Result<Vec<LinearIssue>, String> {
         let data: IssuesData = self
             .query(

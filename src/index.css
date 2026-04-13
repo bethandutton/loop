@@ -52,7 +52,7 @@
   --space-card-px: calc(12px * var(--density-scale));
   --space-card-py: calc(8px * var(--density-scale));
   --space-card-gap: calc(4px * var(--density-scale));
-  --space-list-padding: calc(8px * var(--density-scale));
+  --space-list-padding: calc(4px * var(--density-scale));
   --space-button-y: calc(6px * var(--density-scale));
   --space-button-x: calc(12px * var(--density-scale));
   --space-section-gap: calc(16px * var(--density-scale));
@@ -124,6 +124,7 @@ body {
 /* Tauri window drag region for macOS traffic lights */
 .titlebar-drag-region {
   -webkit-app-region: drag;
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 .titlebar-no-drag {

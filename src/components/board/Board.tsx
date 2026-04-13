@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Plus, Search, X, Filter, Check, AlertTriangle, Copy, ExternalLink, ArrowUpDown } from "lucide-react";
+import { Plus, Search, X, Filter, Check, AlertTriangle, Copy, ExternalLink, ArrowUpDown, Loader2 } from "lucide-react";
 import type { TicketCard } from "@/App";
 
 // Status config: priority for sort order, icon style, color
@@ -118,6 +118,10 @@ export function Board({ tickets, activeTicketId, onSelectTicket }: BoardProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortOption>("status");
+  const [newTicketOpen, setNewTicketOpen] = useState(false);
+  const [newTicketTitle, setNewTicketTitle] = useState("");
+  const [newTicketCreating, setNewTicketCreating] = useState(false);
+  const newTicketRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
 
@@ -130,6 +134,31 @@ export function Board({ tickets, activeTicketId, onSelectTicket }: BoardProps) {
   useEffect(() => {
     if (searchOpen) searchInputRef.current?.focus();
   }, [searchOpen]);
+
+  useEffect(() => {
+    if (newTicketOpen) newTicketRef.current?.focus();
+  }, [newTicketOpen]);
+
+  const handleCreateTicket = async () => {
+    if (!newTicketTitle.trim() || newTicketCreating) return;
+    setNewTicketCreating(true);
+    try {
+      await invoke("create_linear_ticket", {
+        title: newTicketTitle.trim(),
+        description: "",
+        priority: 0,
+      });
+      setNewTicketTitle("");
+      setNewTicketOpen(false);
+      // Refresh tickets
+      const updated = await invoke<TicketCard[]>("fetch_linear_tickets");
+      // App.tsx handles this via event, but also update immediately if parent passes a callback
+    } catch (e) {
+      console.error("Failed to create ticket:", e);
+    } finally {
+      setNewTicketCreating(false);
+    }
+  };
 
   // Close filter menu on outside click
   useEffect(() => {
@@ -284,7 +313,12 @@ export function Board({ tickets, activeTicketId, onSelectTicket }: BoardProps) {
           </button>
           {/* New ticket */}
           <button
-            className="flex h-6 w-6 items-center justify-center rounded hover:bg-surface-elevated text-muted-foreground hover:text-foreground transition-colors duration-75"
+            onClick={() => setNewTicketOpen(!newTicketOpen)}
+            className={`flex h-6 w-6 items-center justify-center rounded transition-colors duration-75 ${
+              newTicketOpen
+                ? "bg-primary/10 text-primary"
+                : "hover:bg-surface-elevated text-muted-foreground hover:text-foreground"
+            }`}
             title="New ticket (⌘N)"
           >
             <Plus size={14} />
@@ -317,6 +351,41 @@ export function Board({ tickets, activeTicketId, onSelectTicket }: BoardProps) {
                 className="text-muted-foreground hover:text-foreground"
               >
                 <X size={12} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* New ticket form */}
+      {newTicketOpen && (
+        <div className="shrink-0 px-3 pb-2">
+          <div className="flex items-center gap-2 rounded-md bg-surface px-2 py-1.5">
+            <input
+              ref={newTicketRef}
+              type="text"
+              value={newTicketTitle}
+              onChange={(e) => setNewTicketTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateTicket();
+                if (e.key === "Escape") {
+                  setNewTicketTitle("");
+                  setNewTicketOpen(false);
+                }
+              }}
+              placeholder="New ticket title..."
+              className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 outline-none"
+              disabled={newTicketCreating}
+            />
+            {newTicketCreating ? (
+              <Loader2 size={12} className="animate-spin text-muted-foreground" />
+            ) : (
+              <button
+                onClick={handleCreateTicket}
+                disabled={!newTicketTitle.trim()}
+                className="text-primary hover:text-primary/80 disabled:text-muted-foreground/30"
+              >
+                <Plus size={14} />
               </button>
             )}
           </div>

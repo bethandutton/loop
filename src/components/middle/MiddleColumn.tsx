@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { CheckCircle, AlertCircle } from "lucide-react";
+import { CheckCircle, AlertCircle, Play, Square, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { PlanEditor } from "@/components/middle/PlanEditor";
+import { TerminalSession } from "@/components/middle/TerminalSession";
 import type { TicketCard } from "@/App";
 
 interface ClaudeCodeStatus {
@@ -10,7 +12,14 @@ interface ClaudeCodeStatus {
   authenticated: boolean;
 }
 
+interface StartTicketResult {
+  session_id: string;
+  branch_name: string;
+  worktree_path: string;
+}
+
 const PLAN_STATUSES = ["backlog", "todo", "planning"];
+const SESSION_STATUSES = ["in_progress", "ready_to_test", "in_review", "attention_required", "ready_to_merge"];
 
 interface MiddleColumnProps {
   activeTicket: TicketCard | null;
@@ -18,6 +27,12 @@ interface MiddleColumnProps {
 
 export function MiddleColumn({ activeTicket }: MiddleColumnProps) {
   const [claudeStatus, setClaudeStatus] = useState<ClaudeCodeStatus | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  // Track sessions per ticket
+  const [ticketSessions, setTicketSessions] = useState<Record<string, string>>({});
 
   useEffect(() => {
     invoke<ClaudeCodeStatus>("check_claude_code")
@@ -25,12 +40,125 @@ export function MiddleColumn({ activeTicket }: MiddleColumnProps) {
       .catch(() => setClaudeStatus({ installed: false, path: null, authenticated: false }));
   }, []);
 
+  // When active ticket changes, check if we have a session for it
+  useEffect(() => {
+    if (activeTicket && ticketSessions[activeTicket.id]) {
+      setSessionId(ticketSessions[activeTicket.id]);
+    } else {
+      setSessionId(null);
+    }
+    setStartError(null);
+  }, [activeTicket?.id]);
+
+  const handleStartTicket = async () => {
+    if (!activeTicket || starting) return;
+    setStarting(true);
+    setStartError(null);
+    try {
+      const result = await invoke<StartTicketResult>("start_ticket", {
+        ticketId: activeTicket.id,
+      });
+      setSessionId(result.session_id);
+      setTicketSessions((prev) => ({ ...prev, [activeTicket.id]: result.session_id }));
+    } catch (e) {
+      setStartError(String(e));
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const handleKillSession = async () => {
+    if (!sessionId) return;
+    try {
+      await invoke("kill_session", { sessionId });
+      if (activeTicket) {
+        setTicketSessions((prev) => {
+          const next = { ...prev };
+          delete next[activeTicket.id];
+          return next;
+        });
+      }
+      setSessionId(null);
+    } catch (e) {
+      console.error("Failed to kill session:", e);
+    }
+  };
+
   // Plan mode for early-stage tickets
   if (activeTicket && PLAN_STATUSES.includes(activeTicket.status)) {
     return <PlanEditor ticket={activeTicket} />;
   }
 
-  // Session mode placeholder for in-progress+ tickets
+  // Session mode for in-progress+ tickets
+  if (activeTicket && SESSION_STATUSES.includes(activeTicket.status)) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="titlebar-drag-region flex h-14 shrink-0 items-end justify-between pb-2 px-4">
+          <div className="titlebar-no-drag flex items-center gap-2 min-w-0">
+            <span className="font-mono text-[11px] text-muted-foreground shrink-0">
+              {activeTicket.identifier}
+            </span>
+            <span className="text-[13px] text-foreground truncate">
+              {activeTicket.title}
+            </span>
+          </div>
+          <div className="titlebar-no-drag flex items-center gap-1.5">
+            {!sessionId && (
+              <Button
+                size="sm"
+                onClick={handleStartTicket}
+                disabled={starting}
+              >
+                {starting ? (
+                  <Loader2 size={13} className="animate-spin mr-1" />
+                ) : (
+                  <Play size={13} className="mr-1" />
+                )}
+                {starting ? "Starting..." : "Start session"}
+              </Button>
+            )}
+            {sessionId && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleKillSession}
+                title="Kill session"
+                className="text-destructive hover:text-destructive"
+              >
+                <Square size={13} className="mr-1" />
+                Kill
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {startError && (
+          <div className="mx-4 mb-2 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
+            <p className="text-xs text-destructive">{startError}</p>
+          </div>
+        )}
+
+        {sessionId ? (
+          <div className="flex-1 min-h-0">
+            <TerminalSession sessionId={sessionId} />
+          </div>
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center space-y-2">
+              <p className="text-sm text-muted-foreground">
+                No active session.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Click "Start session" to spawn Claude Code in a worktree.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Ticket selected but in a status we don't handle yet (e.g. done)
   if (activeTicket) {
     return (
       <div className="flex h-full flex-col">
@@ -42,22 +170,16 @@ export function MiddleColumn({ activeTicket }: MiddleColumnProps) {
             {activeTicket.title}
           </span>
         </div>
-
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="text-center space-y-2">
-            <p className="text-sm text-foreground font-medium">
-              {activeTicket.status.replace(/_/g, " ")}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Claude Code terminal session coming in Phase 3.
-            </p>
-          </div>
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">
+            {activeTicket.status.replace(/_/g, " ")}
+          </p>
         </div>
       </div>
     );
   }
 
-  // Empty state
+  // Empty state — no ticket selected
   return (
     <div className="flex h-full flex-col">
       <div className="titlebar-drag-region flex h-14 shrink-0 items-end pb-2 px-3">

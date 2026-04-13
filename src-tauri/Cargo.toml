@@ -24,4 +24,6 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
 dirs = "6"
 reqwest = { version = "0.12", features = ["json"] }
+portable-pty = "0.8"
+glob = "0.3"
 

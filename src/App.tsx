@@ -38,19 +38,23 @@ export default function App() {
       });
   }, []);
 
-  // Fetch tickets when main view loads, then poll every 30s
+  // Fetch tickets on load, then listen for background polling updates
   useEffect(() => {
     if (view !== "main") return;
 
-    const fetchTickets = () => {
-      invoke<TicketCard[]>("fetch_linear_tickets")
-        .then(setTickets)
-        .catch((e) => console.error("Failed to fetch tickets:", e));
-    };
+    // Initial fetch from Linear (also persists to SQLite)
+    invoke<TicketCard[]>("fetch_linear_tickets")
+      .then(setTickets)
+      .catch((e) => console.error("Failed to fetch tickets:", e));
 
-    fetchTickets();
-    const interval = setInterval(fetchTickets, 30000);
-    return () => clearInterval(interval);
+    // Listen for background polling updates — read from SQLite
+    const unlisten = listen("tickets_updated", () => {
+      invoke<TicketCard[]>("get_tickets")
+        .then(setTickets)
+        .catch((e) => console.error("Failed to get tickets:", e));
+    });
+
+    return () => { unlisten.then((f) => f()); };
   }, [view]);
 
   // Listen for macOS menu events
@@ -127,7 +131,7 @@ export default function App() {
         {/* Right — Local (fixed 400px) */}
         {rightColumnVisible && (
           <div className="w-[400px] min-w-[380px] shrink-0 bg-surface rounded-xl overflow-hidden">
-            <RightColumn />
+            <RightColumn activeTicket={activeTicket} />
           </div>
         )}
       </div>

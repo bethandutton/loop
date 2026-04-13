@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Save, Loader2, Pencil, Eye } from "lucide-react";
+import { Sparkles, Save, Loader2, Pencil, Eye, Play } from "lucide-react";
 import type { TicketCard } from "@/App";
 
 interface PlanEditorProps {
@@ -16,18 +16,26 @@ export function PlanEditor({ ticket }: PlanEditorProps) {
   const [saving, setSaving] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [conflict, setConflict] = useState(false);
+  const lastRemoteContent = useRef<string>("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setContent("");
     setDirty(false);
     setEditing(false);
+    setLoading(true);
     invoke<string | null>("get_ticket_description", { ticketId: ticket.id })
       .then((desc) => {
-        setContent(desc || "");
+        const val = desc || "";
+        setContent(val);
+        lastRemoteContent.current = val;
         setDirty(false);
+        setConflict(false);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [ticket.id]);
 
   useEffect(() => {
@@ -35,6 +43,34 @@ export function PlanEditor({ ticket }: PlanEditorProps) {
       textareaRef.current.focus();
     }
   }, [editing]);
+
+  // Poll for remote changes every 30s to detect conflicts
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!dirty) return; // Only check when there are local edits
+      invoke<string | null>("get_ticket_description", { ticketId: ticket.id })
+        .then((desc) => {
+          const remote = desc || "";
+          if (remote !== lastRemoteContent.current) {
+            setConflict(true);
+          }
+        })
+        .catch(() => {});
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [ticket.id, dirty]);
+
+  const handleReloadRemote = useCallback(() => {
+    invoke<string | null>("get_ticket_description", { ticketId: ticket.id })
+      .then((desc) => {
+        const val = desc || "";
+        setContent(val);
+        lastRemoteContent.current = val;
+        setDirty(false);
+        setConflict(false);
+      })
+      .catch(() => {});
+  }, [ticket.id]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setContent(e.target.value);
@@ -86,6 +122,23 @@ export function PlanEditor({ ticket }: PlanEditorProps) {
           )}
         </div>
         <div className="titlebar-no-drag flex items-center gap-1.5">
+          {(ticket.status === "backlog" || ticket.status === "todo") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                try {
+                  await invoke("update_ticket_status", { ticketId: ticket.id, status: "planning" });
+                } catch (e) {
+                  console.error("Failed to update status:", e);
+                }
+              }}
+              title="Move to Planning"
+            >
+              <Play size={13} className="mr-1" />
+              Plan
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -125,15 +178,33 @@ export function PlanEditor({ ticket }: PlanEditorProps) {
         </div>
       </div>
 
+      {/* Conflict banner */}
+      {conflict && (
+        <div className="mx-4 rounded-md bg-warning/10 border border-warning/20 px-3 py-2 flex items-center justify-between">
+          <p className="text-xs text-warning">Linear's version has changed since you started editing.</p>
+          <button
+            onClick={handleReloadRemote}
+            className="text-xs text-warning font-medium hover:underline shrink-0 ml-3"
+          >
+            Reload
+          </button>
+        </div>
+      )}
+
       {/* Content area */}
       <div className="flex-1 overflow-y-auto p-8">
         <div className="max-w-3xl mx-auto">
-          {editing ? (
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
+              <Loader2 size={14} className="animate-spin" />
+              Loading plan...
+            </div>
+          ) : editing ? (
             <textarea
               ref={textareaRef}
               value={content}
               onChange={handleChange}
-              className="w-full h-full min-h-[500px] resize-none bg-transparent text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none font-mono"
+              className="w-full h-full min-h-[500px] resize-none bg-transparent text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
               placeholder="Write your plan here (markdown supported)..."
               spellCheck={false}
             />

@@ -18,6 +18,7 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
 
   const [linearToken, setLinearToken] = useState("");
   const [githubToken, setGithubToken] = useState("");
+  const [anthropicKey, setAnthropicKey] = useState("");
   const [repoPath, setRepoPath] = useState("");
   const [worktreesDir, setWorktreesDir] = useState("");
   const [primaryBranch, setPrimaryBranch] = useState("main");
@@ -35,6 +36,10 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
 
     invoke<string | null>("get_token", { key: "github_api_token" }).then((val) => {
       if (val) setGithubToken("••••••••" + val.slice(-4));
+    }).catch(() => {});
+
+    invoke<string | null>("get_token", { key: "anthropic_api_key" }).then((val) => {
+      if (val) setAnthropicKey("••••••••" + val.slice(-4));
     }).catch(() => {});
 
     // Load repo settings
@@ -158,6 +163,25 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
                 placeholder="ghp_..."
               />
             </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-muted-foreground">Anthropic API key</label>
+                <a
+                  href="https://console.anthropic.com/settings/keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-primary hover:opacity-80"
+                >
+                  Get key
+                </a>
+              </div>
+              <PasswordInput
+                value={anthropicKey}
+                onChange={(e) => setAnthropicKey(e.target.value)}
+                placeholder="sk-ant-..."
+              />
+              <p className="text-[11px] text-muted-foreground/70">Used for the "Enhance with Claude" plan feature.</p>
+            </div>
           </section>
 
           {/* Repo */}
@@ -219,7 +243,19 @@ export function SettingsPanel({ open, onClose, onRerunSetup }: SettingsPanelProp
           <Button variant="ghost" size="sm" onClick={onRerunSetup}>
             Re-run setup
           </Button>
-          <Button size="sm" onClick={onClose}>
+          <Button size="sm" onClick={async () => {
+            // Save tokens if they were changed (not masked)
+            if (linearToken && !linearToken.startsWith("••")) {
+              await invoke("store_token", { key: "linear_api_token", value: linearToken }).catch(() => {});
+            }
+            if (githubToken && !githubToken.startsWith("••")) {
+              await invoke("store_token", { key: "github_api_token", value: githubToken }).catch(() => {});
+            }
+            if (anthropicKey && !anthropicKey.startsWith("••")) {
+              await invoke("store_token", { key: "anthropic_api_key", value: anthropicKey }).catch(() => {});
+            }
+            onClose();
+          }}>
             Done
           </Button>
         </div>

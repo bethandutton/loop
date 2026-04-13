@@ -49,6 +49,7 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS Ticket (
                 id                      TEXT PRIMARY KEY,
+                identifier              TEXT,
                 repo_id                 TEXT REFERENCES Repo(id),
                 title                   TEXT NOT NULL,
                 plan_markdown           TEXT,
@@ -115,6 +116,96 @@ impl Database {
                 value   TEXT NOT NULL
             );
             ",
+        )?;
+
+        // Add identifier column if missing (migration for existing DBs)
+        let has_identifier: bool = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('Ticket') WHERE name='identifier'")
+            .and_then(|mut s| s.query_row([], |r| r.get::<_, i64>(0)))
+            .map(|c| c > 0)
+            .unwrap_or(false);
+        if !has_identifier {
+            conn.execute_batch("ALTER TABLE Ticket ADD COLUMN identifier TEXT;")?;
+        }
+
+        Ok(())
+    }
+
+    /// Upsert a ticket from Linear data. Preserves local-only fields (branch_name, worktree_path, etc.)
+    pub fn upsert_ticket(
+        &self,
+        id: &str,
+        identifier: &str,
+        repo_id: &str,
+        title: &str,
+        status: &str,
+        priority: i64,
+        tags: &str,
+        created_at: &str,
+        updated_at: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO Ticket (id, identifier, repo_id, title, status, priority, tags, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(id) DO UPDATE SET
+                identifier = excluded.identifier,
+                title = excluded.title,
+                status = CASE WHEN Ticket.branch_name IS NOT NULL THEN Ticket.status ELSE excluded.status END,
+                priority = excluded.priority,
+                tags = excluded.tags,
+                updated_at = excluded.updated_at",
+            rusqlite::params![id, identifier, repo_id, title, status, priority, tags, created_at, updated_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_all_tickets(&self, repo_id: &str) -> Result<Vec<TicketRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, identifier, title, status, priority, branch_name, tags, created_at, updated_at
+             FROM Ticket WHERE repo_id = ?1"
+        )?;
+        let rows = stmt.query_map([repo_id], |row| {
+            Ok(TicketRow {
+                id: row.get(0)?,
+                identifier: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                title: row.get(2)?,
+                status: row.get(3)?,
+                priority: row.get(4)?,
+                branch_name: row.get(5)?,
+                tags: row.get::<_, String>(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        })?;
+        let mut tickets = Vec::new();
+        for row in rows {
+            tickets.push(row?);
+        }
+        Ok(tickets)
+    }
+
+    pub fn update_ticket_status(&self, ticket_id: &str, status: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE Ticket SET status = ?2, updated_at = datetime('now') WHERE id = ?1",
+            [ticket_id, status],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_ticket_branch(
+        &self,
+        ticket_id: &str,
+        branch_name: &str,
+        worktree_path: &str,
+        session_id: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE Ticket SET branch_name = ?2, worktree_path = ?3, claude_session_id = ?4, updated_at = datetime('now') WHERE id = ?1",
+            rusqlite::params![ticket_id, branch_name, worktree_path, session_id],
         )?;
         Ok(())
     }
@@ -184,6 +275,19 @@ impl Database {
             .ok();
         Ok(result)
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TicketRow {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub status: String,
+    pub priority: i64,
+    pub branch_name: Option<String>,
+    pub tags: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

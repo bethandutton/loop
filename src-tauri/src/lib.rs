@@ -1,15 +1,21 @@
 mod db;
 mod keychain;
 mod linear;
+mod github;
+mod pty;
+mod services;
+mod worktree;
 
 use db::Database;
 use linear::LinearClient;
 use std::sync::Arc;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tauri::menu::{MenuBuilder, SubmenuBuilder};
 
 pub struct AppState {
     pub db: Arc<Database>,
+    pub sessions: Arc<pty::SessionManager>,
+    pub services: Arc<services::ServiceManager>,
 }
 
 // ---- Settings commands ----
@@ -184,18 +190,39 @@ struct TicketCard {
 }
 
 #[tauri::command]
-async fn fetch_linear_tickets() -> Result<Vec<TicketCard>, String> {
+async fn fetch_linear_tickets(state: tauri::State<'_, AppState>) -> Result<Vec<TicketCard>, String> {
     let token = keychain::get_secret("linear_api_token")?
         .ok_or("No Linear API token configured")?;
 
     let client = LinearClient::new(&token);
     let issues = client.get_assigned_issues().await?;
 
+    // Get active repo for upsert
+    let repo_id = state.db.get_active_repo()
+        .map_err(|e| e.to_string())?
+        .map(|r| r.id)
+        .unwrap_or_default();
+
     let tickets: Vec<TicketCard> = issues
         .into_iter()
         .map(|issue| {
             let status = linear::map_linear_state_to_status(&issue);
-            let tags: Vec<String> = issue.labels.nodes.into_iter().map(|l| l.name).collect();
+            let tags: Vec<String> = issue.labels.nodes.iter().map(|l| l.name.clone()).collect();
+            let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+
+            // Persist to SQLite
+            let _ = state.db.upsert_ticket(
+                &issue.id,
+                &issue.identifier,
+                &repo_id,
+                &issue.title,
+                status,
+                issue.priority,
+                &tags_json,
+                &issue.created_at,
+                &issue.updated_at,
+            );
+
             TicketCard {
                 id: issue.id.clone(),
                 identifier: issue.identifier,
@@ -211,6 +238,78 @@ async fn fetch_linear_tickets() -> Result<Vec<TicketCard>, String> {
         .collect();
 
     Ok(tickets)
+}
+
+#[tauri::command]
+fn get_tickets(state: tauri::State<AppState>) -> Result<Vec<TicketCard>, String> {
+    let repo = state.db.get_active_repo().map_err(|e| e.to_string())?;
+    let repo_id = match repo {
+        Some(r) => r.id,
+        None => return Ok(vec![]),
+    };
+    let rows = state.db.get_all_tickets(&repo_id).map_err(|e| e.to_string())?;
+    let tickets = rows.into_iter().map(|r| {
+        let tags: Vec<String> = serde_json::from_str(&r.tags).unwrap_or_default();
+        TicketCard {
+            id: r.id,
+            identifier: r.identifier,
+            title: r.title,
+            priority: r.priority,
+            status: r.status,
+            branch_name: r.branch_name,
+            tags,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }).collect();
+    Ok(tickets)
+}
+
+#[tauri::command]
+fn update_ticket_status(state: tauri::State<AppState>, ticket_id: String, status: String) -> Result<(), String> {
+    state.db.update_ticket_status(&ticket_id, &status).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn create_linear_ticket(
+    state: tauri::State<'_, AppState>,
+    title: String,
+    description: String,
+    priority: i64,
+) -> Result<TicketCard, String> {
+    let token = keychain::get_secret("linear_api_token")?
+        .ok_or("No Linear API token configured")?;
+
+    let client = LinearClient::new(&token);
+    let team_id = client.get_viewer_team_id().await?;
+    let assignee_id = client.get_viewer_id().await?;
+    let issue = client.create_issue(&team_id, &title, &description, priority, &assignee_id).await?;
+
+    let status = linear::map_linear_state_to_status(&issue);
+    let tags: Vec<String> = issue.labels.nodes.iter().map(|l| l.name.clone()).collect();
+    let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+
+    // Persist to SQLite
+    let repo_id = state.db.get_active_repo()
+        .map_err(|e| e.to_string())?
+        .map(|r| r.id)
+        .unwrap_or_default();
+    let _ = state.db.upsert_ticket(
+        &issue.id, &issue.identifier, &repo_id, &issue.title,
+        status, issue.priority, &tags_json, &issue.created_at, &issue.updated_at,
+    );
+
+    Ok(TicketCard {
+        id: issue.id,
+        identifier: issue.identifier,
+        title: issue.title,
+        priority: issue.priority,
+        status: status.to_string(),
+        branch_name: issue.branch_name,
+        tags,
+        created_at: issue.created_at,
+        updated_at: issue.updated_at,
+    })
 }
 
 #[tauri::command]
@@ -303,17 +402,328 @@ async fn enhance_plan(
     title: String,
     current_plan: String,
 ) -> Result<String, String> {
-    // Phase 2.1: will call Anthropic API with codebase context
-    // For now, return a structured template
-    let enhanced = if current_plan.trim().is_empty() {
-        format!(
-            "# {}\n\n## Goal\n\n\n\n## Approach\n\n\n\n## Tasks\n\n- [ ] \n\n## Testing\n\n\n",
-            title
-        )
+    let api_key = keychain::get_secret("anthropic_api_key")?
+        .ok_or("No Anthropic API key configured. Add one in Settings.")?;
+
+    let user_message = if current_plan.trim().is_empty() {
+        format!("Ticket title: {}\n\nThere is no plan yet. Create a structured plan for this ticket.", title)
     } else {
-        current_plan
+        format!("Ticket title: {}\n\nCurrent plan:\n{}\n\nImprove this plan.", title, current_plan)
     };
-    Ok(enhanced)
+
+    let body = serde_json::json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 2048,
+        "system": "You are a technical planning assistant. Given a ticket title and optional current plan, produce an improved plan with clear structure: Goal, Approach, Tasks (as checkboxes), and Testing strategy. Return markdown only, no commentary.",
+        "messages": [
+            { "role": "user", "content": user_message }
+        ]
+    });
+
+    let resp = reqwest::Client::new()
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", &api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Anthropic API request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Anthropic API error {}: {}", status, text));
+    }
+
+    #[derive(serde::Deserialize)]
+    struct AnthropicResponse {
+        content: Vec<ContentBlock>,
+    }
+    #[derive(serde::Deserialize)]
+    struct ContentBlock {
+        text: Option<String>,
+    }
+
+    let result: AnthropicResponse = resp.json().await.map_err(|e| format!("Failed to parse response: {}", e))?;
+    let text = result.content.into_iter()
+        .filter_map(|b| b.text)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if text.is_empty() {
+        return Err("Empty response from Anthropic API".to_string());
+    }
+
+    Ok(text)
+}
+
+// ---- Session / Worktree commands ----
+
+#[tauri::command]
+async fn start_ticket(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    ticket_id: String,
+) -> Result<StartTicketResult, String> {
+    let repo = state.db.get_active_repo().map_err(|e| e.to_string())?
+        .ok_or("No active repo configured")?;
+
+    // Fetch the ticket's branch name from Linear
+    let token = keychain::get_secret("linear_api_token")?
+        .ok_or("No Linear API token configured")?;
+    let client = LinearClient::new(&token);
+    let issues = client.get_assigned_issues().await?;
+    let issue = issues.iter().find(|i| i.id == ticket_id)
+        .ok_or("Ticket not found in Linear")?;
+
+    let branch_name = worktree::resolve_branch_name(
+        &issue.identifier,
+        &issue.title,
+        issue.branch_name.as_deref(),
+    );
+
+    // Fetch origin
+    worktree::fetch_origin(&repo.path, &repo.primary_branch)?;
+
+    // Check if branch exists
+    let status = worktree::branch_exists(&repo.path, &branch_name)?;
+    let worktree_path = match status {
+        worktree::BranchStatus::DoesNotExist => {
+            let base_ref = format!("origin/{}", repo.primary_branch);
+            worktree::create_worktree(&repo.path, &repo.worktrees_dir, &branch_name, &base_ref)?
+        }
+        _ => {
+            worktree::use_existing_worktree(&repo.path, &repo.worktrees_dir, &branch_name)?
+        }
+    };
+
+    // Copy env files
+    let copy_patterns = state.db.get_setting("copy_files")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| ".env*".to_string());
+    let patterns: Vec<String> = copy_patterns.split(',').map(|s| s.trim().to_string()).collect();
+    let local_path = std::path::Path::new(&repo.worktrees_dir).join("_local");
+    if local_path.exists() {
+        let _ = worktree::copy_env_files(&local_path.to_string_lossy(), &worktree_path, &patterns);
+    }
+
+    // Find claude CLI
+    let claude_path = std::process::Command::new("which")
+        .arg("claude")
+        .output()
+        .ok()
+        .and_then(|o| if o.status.success() { String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string()) } else { None })
+        .ok_or("Claude Code CLI not found. Install it first.")?;
+
+    // Create session
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let scrollback_dir = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("Herd")
+        .join("scrollbacks");
+    let scrollback_path = scrollback_dir.join(format!("{}.log", session_id));
+
+    state.sessions.spawn_session(
+        &session_id,
+        &ticket_id,
+        &worktree_path,
+        &claude_path,
+        &scrollback_path.to_string_lossy(),
+        app.clone(),
+    )?;
+
+    // Update ticket in DB
+    let _ = state.db.update_ticket_status(&ticket_id, "in_progress");
+    let _ = state.db.update_ticket_branch(&ticket_id, &branch_name, &worktree_path, &session_id);
+
+    Ok(StartTicketResult {
+        session_id,
+        branch_name,
+        worktree_path,
+    })
+}
+
+#[derive(Clone, serde::Serialize)]
+struct StartTicketResult {
+    session_id: String,
+    branch_name: String,
+    worktree_path: String,
+}
+
+#[tauri::command]
+fn get_scrollback(state: tauri::State<AppState>, session_id: String) -> Result<Vec<u8>, String> {
+    state.sessions.get_scrollback(&session_id)
+}
+
+#[tauri::command]
+fn write_to_session(state: tauri::State<AppState>, session_id: String, data: Vec<u8>) -> Result<(), String> {
+    state.sessions.write_to_session(&session_id, &data)
+}
+
+#[tauri::command]
+fn kill_session(state: tauri::State<AppState>, session_id: String) -> Result<(), String> {
+    state.sessions.kill_session(&session_id)
+}
+
+// ---- Local column / Service commands ----
+
+#[tauri::command]
+fn switch_local_branch(state: tauri::State<AppState>, branch_name: String) -> Result<(), String> {
+    let repo = state.db.get_active_repo().map_err(|e| e.to_string())?
+        .ok_or("No active repo")?;
+
+    let local_path = std::path::Path::new(&repo.worktrees_dir).join("_local");
+
+    // Ensure _local worktree exists
+    if !local_path.exists() {
+        std::fs::create_dir_all(&repo.worktrees_dir).map_err(|e| e.to_string())?;
+        let output = std::process::Command::new("git")
+            .args(["worktree", "add", &local_path.to_string_lossy(), &repo.primary_branch])
+            .current_dir(&repo.path)
+            .output()
+            .map_err(|e| format!("Failed to create _local worktree: {}", e))?;
+        if !output.status.success() {
+            return Err(format!("git worktree add failed: {}", String::from_utf8_lossy(&output.stderr)));
+        }
+    }
+
+    // Stop all running services first
+    state.services.stop_all()?;
+
+    // Checkout the branch
+    let output = std::process::Command::new("git")
+        .args(["checkout", &branch_name])
+        .current_dir(&local_path)
+        .output()
+        .map_err(|e| format!("Failed to checkout: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!("git checkout failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_local_branch(state: tauri::State<AppState>) -> Result<Option<String>, String> {
+    let repo = state.db.get_active_repo().map_err(|e| e.to_string())?;
+    let repo = match repo {
+        Some(r) => r,
+        None => return Ok(None),
+    };
+
+    let local_path = std::path::Path::new(&repo.worktrees_dir).join("_local");
+    if !local_path.exists() {
+        return Ok(None);
+    }
+
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(&local_path)
+        .output()
+        .map_err(|e| format!("Failed to get branch: {}", e))?;
+
+    if output.status.success() {
+        Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+fn detect_services(state: tauri::State<AppState>) -> Result<Vec<services::ServiceDef>, String> {
+    let repo = state.db.get_active_repo().map_err(|e| e.to_string())?
+        .ok_or("No active repo")?;
+
+    let local_path = std::path::Path::new(&repo.worktrees_dir).join("_local");
+    if !local_path.exists() {
+        return Ok(vec![]);
+    }
+
+    services::detect_scripts(&local_path.to_string_lossy())
+}
+
+#[tauri::command]
+fn start_service(state: tauri::State<AppState>, script_name: String) -> Result<String, String> {
+    let repo = state.db.get_active_repo().map_err(|e| e.to_string())?
+        .ok_or("No active repo")?;
+
+    let local_path = std::path::Path::new(&repo.worktrees_dir).join("_local");
+    let service_id = uuid::Uuid::new_v4().to_string();
+
+    state.services.start_service(&service_id, &script_name, &local_path.to_string_lossy())?;
+
+    Ok(service_id)
+}
+
+#[tauri::command]
+fn stop_service(state: tauri::State<AppState>, service_id: String) -> Result<(), String> {
+    state.services.stop_service(&service_id)
+}
+
+#[tauri::command]
+fn stop_all_services(state: tauri::State<AppState>) -> Result<(), String> {
+    state.services.stop_all()
+}
+
+#[tauri::command]
+fn get_running_services(state: tauri::State<AppState>) -> Vec<services::ServiceStatus> {
+    state.services.list_running()
+}
+
+// ---- GitHub commands ----
+
+#[tauri::command]
+async fn check_pr_status(state: tauri::State<'_, AppState>, branch_name: String) -> Result<Option<PrInfo>, String> {
+    let token = match keychain::get_secret("github_api_token")? {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+
+    let repo = state.db.get_active_repo().map_err(|e| e.to_string())?
+        .ok_or("No active repo")?;
+
+    let (owner, repo_name) = github::parse_owner_repo(&repo.path)?;
+    let client = github::GitHubClient::new(&token);
+
+    let pr = match client.get_pr_by_branch(&owner, &repo_name, &branch_name).await? {
+        Some(pr) => pr,
+        None => return Ok(None),
+    };
+
+    let reviews = client.get_pr_reviews(&owner, &repo_name, pr.number).await.unwrap_or_default();
+    let comments = client.get_pr_comments(&owner, &repo_name, pr.number).await.unwrap_or_default();
+
+    let approved = reviews.iter().any(|r| r.state == "APPROVED");
+    let changes_requested = reviews.iter().any(|r| r.state == "CHANGES_REQUESTED");
+    let comment_count = comments.len() as i64;
+
+    Ok(Some(PrInfo {
+        number: pr.number,
+        title: pr.title,
+        url: pr.html_url,
+        state: pr.state,
+        draft: pr.draft,
+        merged: pr.merged.unwrap_or(false),
+        approved,
+        changes_requested,
+        comment_count,
+    }))
+}
+
+#[derive(Clone, serde::Serialize)]
+struct PrInfo {
+    number: i64,
+    title: String,
+    url: String,
+    state: String,
+    draft: bool,
+    merged: bool,
+    approved: bool,
+    changes_requested: bool,
+    comment_count: i64,
 }
 
 // ---- Keychain commands ----
@@ -342,7 +752,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState { db: Arc::new(db) })
+        .manage(AppState {
+            db: Arc::new(db),
+            sessions: Arc::new(pty::SessionManager::new()),
+            services: Arc::new(services::ServiceManager::new()),
+        })
         .setup(|app| {
             // Build native macOS menu
             let app_submenu = SubmenuBuilder::new(app, "Herd")
@@ -404,6 +818,111 @@ pub fn run() {
 
             app.set_menu(menu)?;
 
+            // Start background Linear polling task
+            {
+                let handle = app.handle().clone();
+                let db = app.state::<AppState>().db.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        let token = match keychain::get_secret("linear_api_token") {
+                            Ok(Some(t)) => t,
+                            _ => continue,
+                        };
+                        let repo_id = match db.get_active_repo() {
+                            Ok(Some(r)) => r.id,
+                            _ => continue,
+                        };
+                        let client = LinearClient::new(&token);
+                        if let Ok(issues) = client.get_assigned_issues().await {
+                            for issue in &issues {
+                                let status = linear::map_linear_state_to_status(issue);
+                                let tags: Vec<String> = issue.labels.nodes.iter().map(|l| l.name.clone()).collect();
+                                let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+                                let _ = db.upsert_ticket(
+                                    &issue.id,
+                                    &issue.identifier,
+                                    &repo_id,
+                                    &issue.title,
+                                    status,
+                                    issue.priority,
+                                    &tags_json,
+                                    &issue.created_at,
+                                    &issue.updated_at,
+                                );
+                            }
+                            let _ = handle.emit("tickets_updated", ());
+                        }
+                    }
+                });
+            }
+
+            // Start background GitHub polling task (60s)
+            {
+                let handle = app.handle().clone();
+                let db = app.state::<AppState>().db.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                        let gh_token = match keychain::get_secret("github_api_token") {
+                            Ok(Some(t)) => t,
+                            _ => continue,
+                        };
+                        let repo = match db.get_active_repo() {
+                            Ok(Some(r)) => r,
+                            _ => continue,
+                        };
+                        let (owner, repo_name) = match github::parse_owner_repo(&repo.path) {
+                            Ok(v) => v,
+                            Err(_) => continue,
+                        };
+                        let gh_client = github::GitHubClient::new(&gh_token);
+                        let viewer_login = gh_client.get_viewer_login().await.unwrap_or_default();
+
+                        // Get tickets with branches from DB
+                        let tickets = match db.get_all_tickets(&repo.id) {
+                            Ok(t) => t,
+                            Err(_) => continue,
+                        };
+
+                        for ticket in &tickets {
+                            let branch = match &ticket.branch_name {
+                                Some(b) if !b.is_empty() => b.clone(),
+                                _ => continue,
+                            };
+
+                            // Check for PR
+                            if let Ok(Some(pr)) = gh_client.get_pr_by_branch(&owner, &repo_name, &branch).await {
+                                // Check for new comments from others
+                                let comments = gh_client.get_pr_comments(&owner, &repo_name, pr.number).await.unwrap_or_default();
+                                let reviews = gh_client.get_pr_reviews(&owner, &repo_name, pr.number).await.unwrap_or_default();
+
+                                let has_new_external_comments = comments.iter().any(|c| c.user.login != viewer_login);
+                                let approved = reviews.iter().any(|r| r.state == "APPROVED");
+                                let merged = pr.merged.unwrap_or(false);
+
+                                let new_status = if merged {
+                                    "done"
+                                } else if approved {
+                                    "ready_to_merge"
+                                } else if has_new_external_comments && ticket.status != "attention_required" {
+                                    "attention_required"
+                                } else if ticket.status == "ready_to_test" || ticket.status == "in_progress" {
+                                    "in_review"
+                                } else {
+                                    &ticket.status
+                                };
+
+                                if new_status != ticket.status {
+                                    let _ = db.update_ticket_status(&ticket.id, new_status);
+                                    let _ = handle.emit("tickets_updated", ());
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
             // Handle menu events
             let app_handle = app.handle().clone();
             app.on_menu_event(move |_app, event| {
@@ -429,10 +948,25 @@ pub fn run() {
             detect_repo_info,
             check_claude_code,
             fetch_linear_tickets,
+            get_tickets,
+            update_ticket_status,
+            create_linear_ticket,
             verify_linear_token,
             get_ticket_description,
             save_plan_to_linear,
             enhance_plan,
+            start_ticket,
+            get_scrollback,
+            write_to_session,
+            kill_session,
+            switch_local_branch,
+            get_local_branch,
+            detect_services,
+            start_service,
+            stop_service,
+            stop_all_services,
+            get_running_services,
+            check_pr_status,
             store_token,
             get_token,
             delete_token,
