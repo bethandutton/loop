@@ -1,9 +1,12 @@
 mod db;
 mod keychain;
+mod linear;
 
 use db::Database;
+use linear::LinearClient;
 use std::sync::Arc;
 use tauri::Emitter;
+use tauri::menu::{MenuBuilder, SubmenuBuilder};
 
 pub struct AppState {
     pub db: Arc<Database>,
@@ -82,14 +85,12 @@ fn detect_repo_info(path: String) -> Result<DetectedRepoInfo, String> {
         return Err("Not a valid directory or git repository".into());
     }
 
-    // Derive name from folder
     let name = repo_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("repo")
         .to_string();
 
-    // Detect primary branch via git
     let primary_branch = std::process::Command::new("git")
         .args(["symbolic-ref", "refs/remotes/origin/HEAD", "--short"])
         .current_dir(&path)
@@ -106,7 +107,6 @@ fn detect_repo_info(path: String) -> Result<DetectedRepoInfo, String> {
         })
         .unwrap_or_else(|| "main".to_string());
 
-    // Derive worktrees dir
     let parent = repo_path.parent().unwrap_or(repo_path);
     let worktrees_dir = parent
         .join(format!("{}-worktrees", name))
@@ -124,7 +124,6 @@ fn detect_repo_info(path: String) -> Result<DetectedRepoInfo, String> {
 
 #[tauri::command]
 fn check_claude_code() -> Result<ClaudeCodeStatus, String> {
-    // Check if claude is installed
     let which = std::process::Command::new("which")
         .arg("claude")
         .output()
@@ -135,16 +134,16 @@ fn check_claude_code() -> Result<ClaudeCodeStatus, String> {
         .map(|o| o.status.success())
         .unwrap_or(false);
 
-    let path = which
-        .and_then(|o| {
-            if o.status.success() {
-                String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
-            } else {
-                None
-            }
-        });
+    let path = which.and_then(|o| {
+        if o.status.success() {
+            String::from_utf8(o.stdout)
+                .ok()
+                .map(|s| s.trim().to_string())
+        } else {
+            None
+        }
+    });
 
-    // Check if logged in by running claude --version (fast, doesn't require auth)
     let authenticated = if installed {
         std::process::Command::new("claude")
             .arg("--version")
@@ -167,6 +166,52 @@ struct ClaudeCodeStatus {
     installed: bool,
     path: Option<String>,
     authenticated: bool,
+}
+
+// ---- Linear commands ----
+
+#[derive(Clone, serde::Serialize)]
+struct TicketCard {
+    id: String,
+    title: String,
+    priority: i64,
+    status: String,
+    branch_name: Option<String>,
+    tags: Vec<String>,
+}
+
+#[tauri::command]
+async fn fetch_linear_tickets() -> Result<Vec<TicketCard>, String> {
+    let token = keychain::get_secret("linear_api_token")?
+        .ok_or("No Linear API token configured")?;
+
+    let client = LinearClient::new(&token);
+    let issues = client.get_assigned_issues().await?;
+
+    let tickets: Vec<TicketCard> = issues
+        .into_iter()
+        .map(|issue| {
+            let status = linear::map_linear_state_to_status(&issue.state);
+            let tags: Vec<String> = issue.labels.nodes.into_iter().map(|l| l.name).collect();
+            TicketCard {
+                id: issue.id,
+                title: issue.title,
+                priority: issue.priority,
+                status: status.to_string(),
+                branch_name: issue.branch_name,
+                tags,
+            }
+        })
+        .collect();
+
+    Ok(tickets)
+}
+
+#[tauri::command]
+async fn verify_linear_token(token: String) -> Result<String, String> {
+    let client = LinearClient::new(&token);
+    let user = client.get_viewer().await?;
+    Ok(user.name)
 }
 
 // ---- Keychain commands ----
@@ -196,6 +241,83 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState { db: Arc::new(db) })
+        .setup(|app| {
+            // Build native macOS menu
+            let app_submenu = SubmenuBuilder::new(app, "Loop")
+                .about(None)
+                .separator()
+                .item(
+                    &tauri::menu::MenuItem::with_id(
+                        app,
+                        "preferences",
+                        "Preferences...",
+                        true,
+                        Some("CmdOrCtrl+,"),
+                    )?,
+                )
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
+
+            let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+
+            let view_submenu = SubmenuBuilder::new(app, "View")
+                .item(
+                    &tauri::menu::MenuItem::with_id(
+                        app,
+                        "toggle_right",
+                        "Toggle Right Panel",
+                        true,
+                        Some("CmdOrCtrl+B"),
+                    )?,
+                )
+                .separator()
+                .fullscreen()
+                .build()?;
+
+            let window_submenu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .maximize()
+                .close_window()
+                .build()?;
+
+            let menu = MenuBuilder::new(app)
+                .item(&app_submenu)
+                .item(&edit_submenu)
+                .item(&view_submenu)
+                .item(&window_submenu)
+                .build()?;
+
+            app.set_menu(menu)?;
+
+            // Handle menu events
+            let app_handle = app.handle().clone();
+            app.on_menu_event(move |_app, event| {
+                match event.id().as_ref() {
+                    "preferences" => {
+                        let _ = app_handle.emit("open_settings", ());
+                    }
+                    "toggle_right" => {
+                        let _ = app_handle.emit("toggle_right_column", ());
+                    }
+                    _ => {}
+                }
+            });
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_setting,
             set_setting,
@@ -204,6 +326,8 @@ pub fn run() {
             get_active_repo,
             detect_repo_info,
             check_claude_code,
+            fetch_linear_tickets,
+            verify_linear_token,
             store_token,
             get_token,
             delete_token,
