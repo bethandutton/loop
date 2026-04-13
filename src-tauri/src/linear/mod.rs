@@ -18,6 +18,7 @@ pub struct LinearIssue {
     pub labels: LabelConnection,
     #[serde(rename = "branchName")]
     pub branch_name: Option<String>,
+    pub cycle: Option<CycleRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +32,11 @@ pub struct LinearState {
 pub struct LabelConnection {
     #[serde(default)]
     pub nodes: Vec<LinearLabel>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CycleRef {
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +170,9 @@ impl LinearClient {
                                         name
                                     }
                                 }
+                                cycle {
+                                    id
+                                }
                             }
                         }
                     }
@@ -174,11 +183,20 @@ impl LinearClient {
     }
 }
 
-/// Map Linear's state type to Loop's internal status
-pub fn map_linear_state_to_status(state: &LinearState) -> &'static str {
-    match state.state_type.as_str() {
-        "backlog" => "backlog",
-        "unstarted" => "todo",
+/// Map Linear state + cycle to Loop's internal status
+/// - backlog/unstarted + no cycle = "backlog"
+/// - backlog/unstarted + in cycle = "todo"
+/// - started = "in_progress"
+/// - completed = "done"
+pub fn map_linear_state_to_status(issue: &LinearIssue) -> &'static str {
+    match issue.state.state_type.as_str() {
+        "backlog" | "unstarted" => {
+            if issue.cycle.is_some() {
+                "todo"
+            } else {
+                "backlog"
+            }
+        }
         "started" => "in_progress",
         "completed" => "done",
         _ => "backlog",

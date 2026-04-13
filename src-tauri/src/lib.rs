@@ -192,7 +192,7 @@ async fn fetch_linear_tickets() -> Result<Vec<TicketCard>, String> {
     let tickets: Vec<TicketCard> = issues
         .into_iter()
         .map(|issue| {
-            let status = linear::map_linear_state_to_status(&issue.state);
+            let status = linear::map_linear_state_to_status(&issue);
             let tags: Vec<String> = issue.labels.nodes.into_iter().map(|l| l.name).collect();
             TicketCard {
                 id: issue.id.clone(),
