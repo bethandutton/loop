@@ -183,7 +183,7 @@ impl LinearClient {
     }
 }
 
-/// Map Linear state + cycle to Loop's internal status
+/// Map Linear state + cycle to Herd's internal status
 /// - backlog/unstarted + no cycle = "backlog"
 /// - backlog/unstarted + in cycle = "todo"
 /// - started = "in_progress"

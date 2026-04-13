@@ -1,12 +1,12 @@
-# Contributing to Loop
+# Contributing to Herd
 
-Loop is intentionally narrow. It does one thing — manage many in-flight tickets across worktrees — for one kind of user — a solo developer with a slow review cycle. Contributions that improve the core loop, fix bugs, improve accessibility, or add genuine quality improvements are welcomed.
+Herd is intentionally narrow. It does one thing — manage many in-flight tickets across worktrees — for one kind of user — a solo developer with a slow review cycle. Contributions that improve the core loop, fix bugs, improve accessibility, or add genuine quality improvements are welcomed.
 
 ## Development setup
 
 ### Prerequisites
 
-- macOS (Loop is a macOS-only app)
+- macOS (Herd is a macOS-only app)
 - [Rust](https://rustup.rs/) (latest stable)
 - [Node.js](https://nodejs.org/) 20+
 - A Linear account and API token
@@ -31,6 +31,6 @@ The built `.dmg` will be in `src-tauri/target/release/bundle/dmg/`.
 
 ## Contribution philosophy
 
-Contributions that broaden Loop past its intended scope — multi-user features, team collaboration, web access, mobile-first redesigns, generic Kanban features — should be pointed to a fork. This isn't gatekeeping; it's focus.
+Contributions that broaden Herd past its intended scope — multi-user features, team collaboration, web access, mobile-first redesigns, generic Kanban features — should be pointed to a fork. This isn't gatekeeping; it's focus.
 
 If you're unsure whether your idea fits, open an issue to discuss before writing code.
