@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import MDEditor from "@uiw/react-md-editor";
 import { Button } from "@/components/ui/button";
 import { Sparkles, Save, Loader2, Pencil, Eye, Play } from "lucide-react";
 import type { TicketCard } from "@/App";
@@ -262,15 +263,16 @@ export function PlanEditor({ ticket, hideToolbar }: PlanEditorProps) {
               Loading plan...
             </div>
           ) : editing || !content ? (
-            <textarea
-              ref={textareaRef}
-              value={content}
-              onChange={handleChange}
-              onFocus={() => setEditing(true)}
-              className="w-full h-full min-h-[500px] resize-none bg-transparent text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
-              placeholder="Write your plan here (markdown supported)..."
-              spellCheck={false}
-            />
+            <div data-color-mode="dark" className="min-h-[500px]">
+              <MDEditor
+                value={content}
+                onChange={(val) => { setContent(val || ""); setDirty(true); setEditing(true); }}
+                preview="edit"
+                height="100%"
+                style={{ minHeight: 500, background: "transparent" }}
+                textareaProps={{ placeholder: "Write your plan here..." }}
+              />
+            </div>
           ) : (
             <div className="plan-markdown cursor-text text-[15px] leading-relaxed text-foreground [&>*]:text-foreground" onClick={() => setEditing(true)}>
               <ReactMarkdown

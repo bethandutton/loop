@@ -132,6 +132,38 @@ body {
   scrollbar-width: none;
 }
 
+/* Markdown editor theme overrides */
+.w-md-editor {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--foreground) !important;
+}
+.w-md-editor-toolbar {
+  background: var(--surface) !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  margin-bottom: 8px !important;
+}
+.w-md-editor-toolbar li button {
+  color: var(--muted-foreground) !important;
+}
+.w-md-editor-toolbar li button:hover {
+  color: var(--foreground) !important;
+}
+.w-md-editor-text-input,
+.w-md-editor-text {
+  color: var(--foreground) !important;
+  font-size: 15px !important;
+  line-height: 1.7 !important;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+.w-md-editor-text-pre,
+.w-md-editor-text-pre > code {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important;
+  font-size: 15px !important;
+}
+
 /* Mono font utility */
 .font-mono {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
