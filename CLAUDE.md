@@ -2,7 +2,6 @@
 
 ## Git
 - Never add Co-Authored-By or any Claude attribution to commits
-- Repo is under bethandutton on GitHub, not any org
 
 ## Design
 - Primary accent color is light blue (oklch hue ~240) to match the sheep app icon
@@ -14,5 +13,4 @@
 
 ## Architecture
 - API keys stored in macOS Keychain via `keyring` crate, never in SQLite or config files
-- Follow the build plan in `docs/03-build-plan.md` phase by phase
 - State flows through Tauri command/event layer — React components are subscribers, not owners of state

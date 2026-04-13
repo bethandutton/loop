@@ -16,7 +16,7 @@ Herd is intentionally narrow. It does one thing — manage many in-flight ticket
 
 ```bash
 git clone <repo-url>
-cd loop
+cd herd
 npm install
 npm run tauri dev
 ```

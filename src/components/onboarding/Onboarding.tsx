@@ -130,7 +130,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             <p className="text-sm text-muted-foreground">
               Paste your Linear personal API key. Create one at{" "}
               <a
-                href="https://linear.app/lleverage/settings/account/security"
+                href="https://linear.app/settings/api"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary underline underline-offset-2 hover:opacity-80"
