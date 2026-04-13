@@ -177,7 +177,7 @@ export default function App() {
         {/* Main area */}
         <div className="flex-1 min-w-0 flex flex-col">
           {/* Tab row — sits above the content panel */}
-          <div className="titlebar-drag-region flex shrink-0 items-end pl-1 gap-1 pt-2 pb-1">
+          <div className="titlebar-drag-region flex shrink-0 items-end gap-1 pt-2 pb-1">
             {activeTicket ? (
               tabs.map((tab) => (
                 <div key={tab.key} className="titlebar-no-drag relative group">
