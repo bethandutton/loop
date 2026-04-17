@@ -103,13 +103,22 @@ impl ServiceManager {
         // the system node, breaking engine-constrained scripts (e.g. `dotenv`
         // from a workspace bin, or repos that require node 24 via nvm).
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        // If the repo has a .nvmrc, run `nvm use` before the command so the
+        // right node version is selected. Harmless if nvm isn't installed.
+        let has_nvmrc = std::path::Path::new(worktree_path).join(".nvmrc").is_file();
+        let nvm_prefix = if has_nvmrc {
+            "command -v nvm >/dev/null 2>&1 && nvm use >/dev/null 2>&1; "
+        } else { "" };
         let inner = if is_install {
-            format!("exec {} install", shell_quote(&pkg_mgr))
+            format!("{}exec {} install", nvm_prefix, shell_quote(&pkg_mgr))
         } else {
-            format!("exec {} run {}", shell_quote(&pkg_mgr), shell_quote(script_name))
+            format!("{}exec {} run {}", nvm_prefix, shell_quote(&pkg_mgr), shell_quote(script_name))
         };
         let mut cmd = CommandBuilder::new(&shell);
-        cmd.args(["-l", "-c", &inner]);
+        // `-i` makes the shell interactive so .zshrc runs nvm init (many
+        // users only load nvm in the interactive section); `-l` sources
+        // login files too. Combined they match a normal iTerm/Terminal tab.
+        cmd.args(["-i", "-l", "-c", &inner]);
         cmd.cwd(worktree_path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
@@ -236,7 +245,21 @@ pub fn detect_scripts(worktree_path: &str) -> Result<(Vec<ServiceDef>, bool, boo
             command: cmd.as_str().unwrap_or("").to_string(),
         }).collect())
         .unwrap_or_default();
-    let node_modules_installed = root.join("node_modules").is_dir();
+    // For pnpm workspaces, `_local/node_modules` can be partially populated:
+    // only `.pnpm` (the virtual store) with none of the top-level package
+    // symlinks. Treat that as not-installed so the UI prompts for install.
+    let nm = root.join("node_modules");
+    let node_modules_installed = nm.is_dir() && std::fs::read_dir(&nm)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .any(|e| {
+                    let name = e.file_name();
+                    let s = name.to_string_lossy();
+                    !s.is_empty() && s != ".pnpm" && !s.starts_with('.')
+                })
+        })
+        .unwrap_or(false);
     let package_manager = detect_package_manager(worktree_path);
     Ok((scripts, has_package_json, node_modules_installed, package_manager))
 }

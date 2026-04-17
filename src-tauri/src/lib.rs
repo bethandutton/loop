@@ -815,12 +815,26 @@ fn ensure_local_worktree(repo: &db::RepoRow, desired_branch: Option<&str>) -> Re
         }
     }
 
-    // If the main repo has node_modules and _local doesn't, symlink it so services work
-    // without reinstalling. No harm if package.json versions differ — dev server will
-    // complain, but you can always rerun install.
+    // pnpm workspaces keep per-package node_modules, so a single symlink at
+    // the worktree root misses most of the `.bin` entries. Since pnpm uses a
+    // content-addressed global store, running install in the worktree is
+    // cheap — mostly symlinks into `~/Library/pnpm/store`.
+    //
+    // For npm/yarn we keep the root-node_modules symlink shortcut to avoid
+    // doubling disk usage per worktree.
     let main_nm = std::path::Path::new(&repo.path).join("node_modules");
     let local_nm = local_path.join("node_modules");
-    if main_nm.is_dir() && !local_nm.exists() {
+    let is_pnpm_workspace = std::path::Path::new(&repo.path).join("pnpm-workspace.yaml").is_file();
+
+    if is_pnpm_workspace {
+        // If a stale empty node_modules is blocking install, remove it.
+        if local_nm.is_dir() {
+            let empty = std::fs::read_dir(&local_nm).map(|mut d| d.next().is_none()).unwrap_or(false);
+            if empty {
+                let _ = std::fs::remove_dir(&local_nm);
+            }
+        }
+    } else if main_nm.is_dir() && !local_nm.exists() {
         #[cfg(unix)]
         {
             let _ = std::os::unix::fs::symlink(&main_nm, &local_nm);
